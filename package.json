@@ -1,0 +1,19 @@
+{
+  "name": "node-red-contrib-mavlink-enum",
+  "version": "0.1.0",
+  "description": "Node-RED node that parses mavlink.h and lets you pick MAVLink enums from dropdowns.",
+  "keywords": ["node-red", "mavlink", "drones", "uav"],
+  "author": "you",
+  "license": "MIT",
+  "node-red": {
+    "nodes": {
+      "mavlink-enum": "mavlink-enum.js"
+    }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
+

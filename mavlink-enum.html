@@ -1,0 +1,160 @@
+<script type="text/x-red" data-template-name="mavlink-enum">
+  <div class="form-row">
+    <label for="node-input-headerPath"><i class="fa fa-file"></i> Mavlink header</label>
+    <input type="text" id="node-input-headerPath" placeholder="/path/to/common/mavlink.h">
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-enumName"><i class="fa fa-list"></i> Enum</label>
+    <select id="node-input-enumName"></select>
+    <a class="editor-button" id="node-btn-refresh-enums" style="margin-left:6px;">Refresh</a>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-keySource"><i class="fa fa-exchange"></i> Key source</label>
+    <select id="node-input-keySource">
+      <option value="config">Pick in editor</option>
+      <option value="msg">From msg</option>
+      <option value="flow">From flow context</option>
+      <option value="global">From global context</option>
+    </select>
+  </div>
+
+  <div class="form-row" id="row-config-key">
+    <label for="node-input-enumKey"><i class="fa fa-tag"></i> Key</label>
+    <select id="node-input-enumKey"></select>
+  </div>
+
+  <div class="form-row" id="row-dyn-key">
+    <label for="node-input-keyField"><i class="fa fa-code"></i> Property</label>
+    <input type="text" id="node-input-keyField" placeholder="payload">
+    <div class="form-tips">When Key source != "Pick in editor", read key name from this property</div>
+  </div>
+</script>
+
+<script type="text/x-red" data-help-name="mavlink-enum">
+  <p>Parses a <code>mavlink.h</code> and gives you dropdowns to choose an <b>enum</b> and a <b>key</b>.</p>
+  <p>Outputs <code>msg.payload = &lt;numeric value&gt;</code> and <code>msg.mavlink = { enum, key, value }</code>.</p>
+  <p><b>Header</b>: path to a generated MAVLink header (e.g., <code>.../mavlink/common/mavlink.h</code>).</p>
+  <p><b>Key source</b>:
+    <ul>
+      <li><b>Pick in editor</b>: Choose the key from a dropdown.</li>
+      <li><b>From msg/flow/global</b>: Provide the enum key name as a string at the given property (default <code>payload</code>).</li>
+    </ul>
+  </p>
+</script>
+
+<script type="text/javascript">
+  (function() {
+    function loadEnums(headerPath) {
+      return $.getJSON("mavlink-enum/enums", { headerPath: headerPath });
+    }
+    function loadMembers(headerPath, enumName) {
+      return $.getJSON("mavlink-enum/members", { headerPath: headerPath, enumName: enumName });
+    }
+
+    RED.nodes.registerType("mavlink-enum", {
+      category: "function",
+      color: "#C7E9C0",
+      defaults: {
+        headerPath: { value: "", required: true },
+        enumName:   { value: "", required: true },
+        enumKey:    { value: "" },
+        keySource:  { value: "config" },
+        keyField:   { value: "payload" }
+      },
+      inputs: 1,
+      outputs: 1,
+      icon: "font-awesome/fa-paper-plane",
+      label: function() {
+        const en = this.enumName || "enum";
+        const ek = this.keySource === "config" ? (this.enumKey || "key") : ("prop:" + (this.keyField||"payload"));
+        return `MAVLink ${en} • ${ek}`;
+      },
+      oneditprepare: function() {
+        const $header = $("#node-input-headerPath");
+        const $enum = $("#node-input-enumName");
+        const $key = $("#node-input-enumKey");
+        const $keySource = $("#node-input-keySource");
+        const $keyField = $("#node-input-keyField");
+        const $rowConfigKey = $("#row-config-key");
+        const $rowDynKey = $("#row-dyn-key");
+        const $refresh = $("#node-btn-refresh-enums");
+
+        function toggleKeyRows() {
+          const src = $keySource.val();
+          if (src === "config") {
+            $rowConfigKey.show();
+            $rowDynKey.hide();
+          } else {
+            $rowConfigKey.hide();
+            $rowDynKey.show();
+          }
+        }
+
+        toggleKeyRows();
+        $keySource.on("change", toggleKeyRows);
+
+        function populateEnums(selected) {
+          const headerPath = $header.val();
+          if (!headerPath) return;
+          $enum.empty();
+          $enum.append($("<option/>").text("Loading...").val(""));
+          loadEnums(headerPath).done(data => {
+            $enum.empty();
+            if (data.ok && data.enums.length) {
+              data.enums.forEach(n => $enum.append($("<option/>").text(n).val(n)));
+              if (selected) $enum.val(selected);
+              $enum.trigger("change");
+            } else {
+              $enum.append($("<option/>").text("No enums found").val(""));
+            }
+          }).fail(xhr => {
+            $enum.empty().append($("<option/>").text("Error loading enums").val(""));
+          });
+        }
+
+        function populateMembers(selected) {
+          const headerPath = $header.val();
+          const enumName = $enum.val();
+          $key.empty();
+          if (!headerPath || !enumName) return;
+          $key.append($("<option/>").text("Loading...").val(""));
+          loadMembers(headerPath, enumName).done(data => {
+            $key.empty();
+            if (data.ok && data.members.length) {
+              data.members.forEach(m => {
+                const label = m.comment ? `${m.key} = ${m.value} // ${m.comment}` : `${m.key} = ${m.value}`;
+                $key.append($("<option/>").text(label).val(m.key));
+              });
+              if (selected) $key.val(selected);
+            } else {
+              $key.append($("<option/>").text("No keys found").val(""));
+            }
+          }).fail(_ => {
+            $key.empty().append($("<option/>").text("Error loading keys").val(""));
+          });
+        }
+
+        $enum.on("change", function() {
+          populateMembers($("#node-input-enumKey").val());
+        });
+
+        $header.on("change", function() {
+          populateEnums($("#node-input-enumName").val());
+        });
+
+        $refresh.on("click", function(e) {
+          e.preventDefault();
+          populateEnums($("#node-input-enumName").val());
+        });
+
+        // initial population if we already have a saved header/enum/key
+        if ($header.val()) {
+          populateEnums($("#node-input-enumName").val());
+        }
+      }
+    });
+  })();
+</script>
+
