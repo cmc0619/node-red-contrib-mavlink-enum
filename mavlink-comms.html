@@ -1,0 +1,241 @@
+<script type="text/x-red" data-template-name="mavlink-comms">
+  <div class="form-row">
+    <label for="node-input-connectionType"><i class="fa fa-plug"></i> Connection</label>
+    <select id="node-input-connectionType">
+      <option value="udp">UDP</option>
+      <option value="tcp">TCP</option>
+      <option value="serial">Serial</option>
+    </select>
+  </div>
+
+  <div class="form-row" id="row-network">
+    <label for="node-input-host"><i class="fa fa-server"></i> Host</label>
+    <input type="text" id="node-input-host" placeholder="127.0.0.1">
+  </div>
+
+  <div class="form-row" id="row-port">
+    <label for="node-input-port"><i class="fa fa-hashtag"></i> Port</label>
+    <input type="number" id="node-input-port" placeholder="14550">
+  </div>
+
+  <div class="form-row" id="row-serial">
+    <label for="node-input-serialPort"><i class="fa fa-usb"></i> Serial Port</label>
+    <input type="text" id="node-input-serialPort" placeholder="/dev/ttyUSB0 or COM3">
+  </div>
+
+  <div class="form-row" id="row-baudrate">
+    <label for="node-input-baudRate"><i class="fa fa-tachometer"></i> Baud Rate</label>
+    <select id="node-input-baudRate">
+      <option value="9600">9600</option>
+      <option value="19200">19200</option>
+      <option value="38400">38400</option>
+      <option value="57600">57600</option>
+      <option value="115200" selected>115200</option>
+      <option value="230400">230400</option>
+      <option value="460800">460800</option>
+      <option value="921600">921600</option>
+    </select>
+  </div>
+
+  <hr>
+
+  <div class="form-row">
+    <label for="node-input-dialect"><i class="fa fa-language"></i> MAVLink Dialect</label>
+    <select id="node-input-dialect"></select>
+    <button type="button" id="node-btn-refresh" class="red-ui-button" style="margin-left:6px;">
+      <i class="fa fa-refresh"></i> Update XMLs
+    </button>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-mavlinkVersion"><i class="fa fa-code-fork"></i> MAVLink Version</label>
+    <select id="node-input-mavlinkVersion">
+      <option value="1.0">v1.0</option>
+      <option value="2.0" selected>v2.0</option>
+    </select>
+  </div>
+
+  <div class="form-row">
+    <label>&nbsp;</label>
+    <button type="button" id="node-btn-manage" class="red-ui-button">
+      <i class="fa fa-folder-open"></i> Manage XMLs
+    </button>
+  </div>
+</script>
+
+<script type="text/x-red" data-help-name="mavlink-comms">
+  <p>MAVLink communication node that handles serial/UDP/TCP connections and manages MAVLink dialect definitions.</p>
+
+  <h3>Features</h3>
+  <ul>
+    <li>Downloads MAVLink XML definitions from ArduPilot repository</li>
+    <li>Supports UDP, TCP, and Serial connections</li>
+    <li>Automatically sends heartbeat messages</li>
+    <li>Parses incoming MAVLink messages and outputs as JSON</li>
+    <li>Listens for outgoing messages from mavlink-msg nodes (no wired connection needed)</li>
+  </ul>
+
+  <h3>Connection Types</h3>
+  <ul>
+    <li><b>UDP</b>: Typical for SITL and ground station connections</li>
+    <li><b>TCP</b>: For TCP-based telemetry links</li>
+    <li><b>Serial</b>: For direct serial connections (USB, UART)</li>
+  </ul>
+
+  <h3>Dialects</h3>
+  <p>Click "Update XMLs" to download all available MAVLink dialects including:</p>
+  <ul>
+    <li>common.xml - Basic MAVLink messages</li>
+    <li>ardupilotmega.xml - ArduPilot-specific messages</li>
+    <li>And many more...</li>
+  </ul>
+
+  <h3>Output</h3>
+  <p>Outputs parsed MAVLink messages as <code>msg.payload</code> with <code>msg.topic</code> set to message name.</p>
+</script>
+
+<script type="text/javascript">
+  (function() {
+    function loadDialects(selected) {
+      return $.getJSON("mavlink-comms/dialects").done(data => {
+        const $dialect = $("#node-input-dialect");
+        $dialect.empty();
+
+        if (data.ok && data.dialects.length > 0) {
+          data.dialects.forEach(d => {
+            $dialect.append($("<option/>").text(d.name).val(d.name));
+          });
+          if (selected) $dialect.val(selected);
+        } else {
+          $dialect.append($("<option/>").text("No dialects found").val(""));
+        }
+      }).fail(xhr => {
+        const msg = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : "Error loading dialects";
+        $("#node-input-dialect").empty().append($("<option/>").text(msg).val(""));
+      });
+    }
+
+    RED.nodes.registerType("mavlink-comms", {
+      category: "network",
+      color: "#87CEEB",
+      defaults: {
+        connectionType: { value: "udp" },
+        host: { value: "127.0.0.1" },
+        port: { value: 14550 },
+        serialPort: { value: "" },
+        baudRate: { value: 115200 },
+        dialect: { value: "common", required: true },
+        mavlinkVersion: { value: "2.0" }
+      },
+      inputs: 0,
+      outputs: 1,
+      icon: "bridge.svg",
+      label: function() {
+        const conn = this.connectionType === "serial" ? this.serialPort : `${this.host}:${this.port}`;
+        return `MAVLink (${conn})`;
+      },
+      oneditprepare: function() {
+        const $connType = $("#node-input-connectionType");
+        const $rowNetwork = $("#row-network");
+        const $rowPort = $("#row-port");
+        const $rowSerial = $("#row-serial");
+        const $rowBaudrate = $("#row-baudrate");
+        const $refresh = $("#node-btn-refresh");
+        const $manage = $("#node-btn-manage");
+
+        function toggleConnectionFields() {
+          const type = $connType.val();
+          if (type === "serial") {
+            $rowNetwork.hide();
+            $rowPort.hide();
+            $rowSerial.show();
+            $rowBaudrate.show();
+          } else {
+            $rowNetwork.show();
+            $rowPort.show();
+            $rowSerial.hide();
+            $rowBaudrate.hide();
+          }
+        }
+
+        toggleConnectionFields();
+        $connType.on("change", toggleConnectionFields);
+
+        // Load dialects on open
+        loadDialects(this.dialect);
+
+        // Update XMLs button
+        $refresh.on("click", function() {
+          const btn = $(this);
+          btn.prop("disabled", true).html('<i class="fa fa-spinner fa-spin"></i> Updating...');
+
+          $.post("mavlink-comms/update-xmls").done(data => {
+            if (data.ok) {
+              RED.notify(`Downloaded ${data.count} dialect(s)`, "success");
+              loadDialects($("#node-input-dialect").val());
+            } else {
+              RED.notify(`Error: ${data.error}`, "error");
+            }
+          }).fail(xhr => {
+            RED.notify("Failed to update XMLs", "error");
+          }).always(() => {
+            btn.prop("disabled", false).html('<i class="fa fa-refresh"></i> Update XMLs');
+          });
+        });
+
+        // Manage XMLs button
+        $manage.on("click", function() {
+          $.getJSON("mavlink-comms/dialects").done(data => {
+            if (!data.ok || data.dialects.length === 0) {
+              RED.notify("No XMLs to manage", "warning");
+              return;
+            }
+
+            let html = '<div style="max-height:400px;overflow-y:auto;"><table style="width:100%;">';
+            html += '<tr><th>Dialect</th><th>Versions</th><th>Action</th></tr>';
+
+            data.dialects.forEach(d => {
+              d.versions.forEach((v, idx) => {
+                if (idx === 0) {
+                  html += `<tr><td rowspan="${d.versions.length}">${d.name}</td>`;
+                } else {
+                  html += '<tr>';
+                }
+                html += `<td>${v.date}</td>`;
+                html += `<td><button class="delete-xml red-ui-button" data-file="${v.file}">Delete</button></td></tr>`;
+              });
+            });
+
+            html += '</table></div>';
+
+            const dialog = $('<div>').html(html).dialog({
+              modal: true,
+              title: "Manage MAVLink XMLs",
+              width: 600,
+              buttons: {
+                Close: function() {
+                  $(this).dialog("close");
+                }
+              }
+            });
+
+            dialog.find(".delete-xml").on("click", function() {
+              const file = $(this).data("file");
+              if (confirm(`Delete ${file}?`)) {
+                $.ajax({
+                  url: `mavlink-comms/xml/${file}`,
+                  method: "DELETE"
+                }).done(() => {
+                  RED.notify(`Deleted ${file}`, "success");
+                  $(this).closest("tr").remove();
+                }).fail(() => {
+                  RED.notify(`Failed to delete ${file}`, "error");
+                });
+              }
+            });
+          });
+        });
+      }
+    });
+  })();
+</script>

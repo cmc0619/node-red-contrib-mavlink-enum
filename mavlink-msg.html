@@ -1,0 +1,281 @@
+<script type="text/x-red" data-template-name="mavlink-msg">
+  <div class="form-row">
+    <label for="node-input-dialect"><i class="fa fa-language"></i> Dialect</label>
+    <select id="node-input-dialect"></select>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-messageType"><i class="fa fa-envelope"></i> Message</label>
+    <select id="node-input-messageType"></select>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-systemId"><i class="fa fa-desktop"></i> System ID</label>
+    <input type="number" id="node-input-systemId" min="1" max="255" value="1">
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-componentId"><i class="fa fa-cube"></i> Component ID</label>
+    <input type="number" id="node-input-componentId" min="1" max="255" value="1">
+  </div>
+
+  <hr>
+
+  <div id="message-fields-container">
+    <div class="form-tips">Select a message type to configure fields</div>
+  </div>
+
+  <input type="hidden" id="node-input-fields">
+</script>
+
+<script type="text/x-red" data-help-name="mavlink-msg">
+  <p>MAVLink message builder node. Constructs MAVLink messages and sends them via the internal bus to mavlink-comms nodes.</p>
+
+  <h3>Usage</h3>
+  <ol>
+    <li>Select a dialect (must match your mavlink-comms node)</li>
+    <li>Select a message type</li>
+    <li>Configure message fields</li>
+    <li>Send input to trigger message transmission</li>
+  </ol>
+
+  <h3>Field Configuration</h3>
+  <p>Fields can be configured in two ways:</p>
+  <ul>
+    <li><b>Static</b>: Set in the node configuration (shown in editor)</li>
+    <li><b>Dynamic</b>: Pass values in <code>msg.payload</code> as an object with field names as keys</li>
+  </ul>
+
+  <h3>Example</h3>
+  <pre>
+// Override configured values
+msg.payload = {
+  param1: 10.5,
+  param2: 20.0
+};
+return msg;
+  </pre>
+
+  <h3>Note</h3>
+  <p>No wired connection to mavlink-comms is needed. Messages are sent via internal flow context.</p>
+</script>
+
+<script type="text/javascript">
+  (function() {
+    let allMessages = {};
+    let allEnums = {};
+    let currentNode = null;
+
+    function loadDialects() {
+      return $.getJSON("mavlink-msg/dialects").done(data => {
+        const $dialect = $("#node-input-dialect");
+        $dialect.empty();
+
+        if (data.ok && data.dialects.length > 0) {
+          data.dialects.forEach(d => {
+            $dialect.append($("<option/>").text(d).val(d));
+          });
+        } else {
+          $dialect.append($("<option/>").text("No dialects found").val(""));
+        }
+      });
+    }
+
+    function loadMessages(dialect) {
+      return $.getJSON("mavlink-msg/messages", { dialect }).done(data => {
+        const $msg = $("#node-input-messageType");
+        $msg.empty();
+
+        if (data.ok && Object.keys(data.messages).length > 0) {
+          allMessages = data.messages;
+
+          // Sort messages by name
+          const sortedNames = Object.keys(data.messages).sort();
+
+          $msg.append($("<option/>").text("-- Select Message --").val(""));
+          sortedNames.forEach(name => {
+            const msg = data.messages[name];
+            const label = `${name} (${msg.id})`;
+            $msg.append($("<option/>").text(label).val(name));
+          });
+        } else {
+          $msg.append($("<option/>").text("No messages found").val(""));
+        }
+      }).fail(xhr => {
+        const msg = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : "Error loading messages";
+        $("#node-input-messageType").empty().append($("<option/>").text(msg).val(""));
+      });
+    }
+
+    function loadEnums(dialect) {
+      return $.getJSON("mavlink-msg/enums", { dialect }).done(data => {
+        if (data.ok) {
+          allEnums = data.enums;
+        }
+      });
+    }
+
+    function generateFieldUI(messageName) {
+      const $container = $("#message-fields-container");
+      $container.empty();
+
+      const msg = allMessages[messageName];
+      if (!msg) return;
+
+      if (msg.description) {
+        $container.append($(`<div class="form-tips" style="margin-bottom:10px;">${msg.description}</div>`));
+      }
+
+      if (msg.fields.length === 0) {
+        $container.append($('<div class="form-tips">This message has no fields</div>'));
+        return;
+      }
+
+      msg.fields.forEach(field => {
+        const $row = $('<div class="form-row"></div>');
+        const fieldId = `field-${field.name}`;
+
+        let $label = $(`<label for="${fieldId}"><i class="fa fa-tag"></i> ${field.name}</label>`);
+        $row.append($label);
+
+        let $input;
+
+        // Check if field has an enum
+        if (field.enum && allEnums[field.enum]) {
+          $input = $(`<select id="${fieldId}" data-field="${field.name}"></select>`);
+
+          // Add enum options
+          $input.append($('<option value="">-- Select --</option>'));
+          allEnums[field.enum].forEach(entry => {
+            const label = entry.description ? `${entry.name} (${entry.value}) - ${entry.description}` : `${entry.name} (${entry.value})`;
+            $input.append($(`<option value="${entry.value}">${label}</option>`));
+          });
+
+          // Special handling for MAV_CMD
+          if (field.enum === "MAV_CMD") {
+            $input.addClass("mav-cmd-selector");
+          }
+
+        } else if (field.type.includes("char[")) {
+          // String field
+          $input = $(`<input type="text" id="${fieldId}" data-field="${field.name}" placeholder="${field.type}">`);
+
+        } else if (field.type.includes("[")) {
+          // Array field
+          $input = $(`<input type="text" id="${fieldId}" data-field="${field.name}" placeholder="Comma-separated values">`);
+
+        } else if (field.type.includes("float") || field.type.includes("double")) {
+          // Float field
+          $input = $(`<input type="number" step="any" id="${fieldId}" data-field="${field.name}" placeholder="${field.type}">`);
+
+        } else if (field.type.includes("int") || field.type.includes("uint")) {
+          // Integer field
+          $input = $(`<input type="number" step="1" id="${fieldId}" data-field="${field.name}" placeholder="${field.type}">`);
+
+        } else {
+          // Default text input
+          $input = $(`<input type="text" id="${fieldId}" data-field="${field.name}" placeholder="${field.type}">`);
+        }
+
+        $row.append($input);
+
+        // Add field description and units if available
+        if (field.description || field.units) {
+          let tipText = [];
+          if (field.type) tipText.push(`Type: ${field.type}`);
+          if (field.units) tipText.push(`Units: ${field.units}`);
+          if (field.description) tipText.push(field.description);
+
+          $row.append($(`<div class="form-tips" style="margin-left:110px;">${tipText.join(" | ")}</div>`));
+        }
+
+        $container.append($row);
+
+        // Restore saved value if exists
+        if (currentNode.fields && currentNode.fields[field.name] !== undefined) {
+          $input.val(currentNode.fields[field.name]);
+        }
+      });
+    }
+
+    function saveFieldValues() {
+      const fields = {};
+      $("#message-fields-container").find("input[data-field], select[data-field]").each(function() {
+        const fieldName = $(this).data("field");
+        const value = $(this).val();
+        if (value !== null && value !== "") {
+          fields[fieldName] = value;
+        }
+      });
+      $("#node-input-fields").val(JSON.stringify(fields));
+    }
+
+    RED.nodes.registerType("mavlink-msg", {
+      category: "function",
+      color: "#87CEEB",
+      defaults: {
+        dialect: { value: "common", required: true },
+        messageType: { value: "", required: true },
+        systemId: { value: 1, required: true, validate: RED.validators.number() },
+        componentId: { value: 1, required: true, validate: RED.validators.number() },
+        fields: { value: {} }
+      },
+      inputs: 1,
+      outputs: 1,
+      icon: "envelope.svg",
+      label: function() {
+        return this.messageType ? `MAVLink: ${this.messageType}` : "MAVLink Message";
+      },
+      oneditprepare: function() {
+        currentNode = this;
+
+        const $dialect = $("#node-input-dialect");
+        const $messageType = $("#node-input-messageType");
+
+        // Load dialects
+        loadDialects().done(() => {
+          if (this.dialect) {
+            $dialect.val(this.dialect);
+          }
+
+          // Load messages and enums for current dialect
+          Promise.all([
+            loadMessages($dialect.val()),
+            loadEnums($dialect.val())
+          ]).done(() => {
+            if (this.messageType) {
+              $messageType.val(this.messageType);
+              generateFieldUI(this.messageType);
+            }
+          });
+        });
+
+        // When dialect changes, reload messages
+        $dialect.on("change", function() {
+          const dialect = $(this).val();
+          Promise.all([
+            loadMessages(dialect),
+            loadEnums(dialect)
+          ]).done(() => {
+            $messageType.val("");
+            $("#message-fields-container").empty().append($('<div class="form-tips">Select a message type to configure fields</div>'));
+          });
+        });
+
+        // When message type changes, generate field UI
+        $messageType.on("change", function() {
+          const msgType = $(this).val();
+          if (msgType) {
+            generateFieldUI(msgType);
+          } else {
+            $("#message-fields-container").empty().append($('<div class="form-tips">Select a message type to configure fields</div>'));
+          }
+        });
+      },
+      oneditsave: function() {
+        saveFieldValues();
+        this.fields = JSON.parse($("#node-input-fields").val() || "{}");
+      }
+    });
+  })();
+</script>
