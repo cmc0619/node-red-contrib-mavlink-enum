@@ -1,5 +1,5 @@
 {
-  "name": "node-red-contrib-mavlink",
+  "name": "node-red-contrib-mavlink-enum",
   "version": "1.0.0",
   "description": "Node-RED MAVLink driver with dynamic dialect support, serial/UDP communication, and message building.",
   "keywords": ["node-red", "mavlink", "drones", "uav", "ardupilot"],

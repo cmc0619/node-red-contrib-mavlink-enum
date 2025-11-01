@@ -16,6 +16,21 @@ module.exports = function(RED) {
   if (!fs.existsSync(XML_DIR)) fs.mkdirSync(XML_DIR, { recursive: true });
   if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
 
+  // Auto-download XMLs on first run (if directory is empty)
+  const xmlFiles = fs.readdirSync(XML_DIR).filter(f => f.endsWith('.xml'));
+  if (xmlFiles.length === 0) {
+    RED.log.info("MAVLink: No dialect XMLs found, downloading from GitHub...");
+    updateXMLs().then(result => {
+      if (result.ok) {
+        RED.log.info(`MAVLink: Downloaded ${result.count} dialect(s)`);
+      } else {
+        RED.log.warn(`MAVLink: Failed to auto-download XMLs: ${result.error}`);
+      }
+    }).catch(err => {
+      RED.log.warn(`MAVLink: Auto-download error: ${err.message}`);
+    });
+  }
+
   // Download XML file from GitHub
   function downloadXML(url, outputPath) {
     return new Promise((resolve, reject) => {
