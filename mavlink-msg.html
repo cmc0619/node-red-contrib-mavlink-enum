@@ -89,15 +89,50 @@ return msg;
         if (data.ok && Object.keys(data.messages).length > 0) {
           allMessages = data.messages;
 
-          // Sort messages by name
-          const sortedNames = Object.keys(data.messages).sort();
+          // Filter to only "sendable" messages (commands, not telemetry)
+          const isSendable = (name) => {
+            // Common command patterns
+            if (name.startsWith('COMMAND_')) return true;
+            if (name.startsWith('SET_')) return true;
+            if (name.startsWith('PARAM_')) return true;
+            if (name.startsWith('MISSION_')) return true;
+            if (name.startsWith('REQUEST_')) return true;
+            if (name.startsWith('MANUAL_')) return true;
+            if (name.startsWith('RC_CHANNELS_OVERRIDE')) return true;
+            if (name.startsWith('LOG_')) return true;
+
+            // Common telemetry messages to exclude
+            const telemetry = [
+              'HEARTBEAT', 'SYS_STATUS', 'SYSTEM_TIME', 'PING',
+              'GPS_RAW_INT', 'GPS_STATUS', 'SCALED_IMU', 'RAW_IMU',
+              'ATTITUDE', 'ATTITUDE_QUATERNION', 'LOCAL_POSITION_NED',
+              'GLOBAL_POSITION_INT', 'RC_CHANNELS', 'SERVO_OUTPUT_RAW',
+              'MISSION_CURRENT', 'NAV_CONTROLLER_OUTPUT', 'VFR_HUD',
+              'STATUSTEXT', 'DEBUG', 'NAMED_VALUE_FLOAT', 'NAMED_VALUE_INT',
+              'BATTERY_STATUS', 'AUTOPILOT_VERSION', 'VIBRATION', 'HOME_POSITION',
+              'ALTITUDE', 'TERRAIN_REPORT', 'WIND_COV', 'GPS_INPUT', 'GPS_RTCM_DATA',
+              'HIGH_LATENCY', 'ESTIMATOR_STATUS', 'POWER_STATUS'
+            ];
+
+            return !telemetry.includes(name);
+          };
+
+          // Sort and filter messages
+          const sendableNames = Object.keys(data.messages)
+            .filter(isSendable)
+            .sort();
 
           $msg.append($("<option/>").text("-- Select Message --").val(""));
-          sortedNames.forEach(name => {
-            const msg = data.messages[name];
-            const label = `${name} (${msg.id})`;
-            $msg.append($("<option/>").text(label).val(name));
-          });
+
+          if (sendableNames.length === 0) {
+            $msg.append($("<option/>").text("No sendable messages found").val(""));
+          } else {
+            sendableNames.forEach(name => {
+              const msg = data.messages[name];
+              const label = `${name} (${msg.id})`;
+              $msg.append($("<option/>").text(label).val(name));
+            });
+          }
         } else {
           $msg.append($("<option/>").text("No messages found").val(""));
         }
