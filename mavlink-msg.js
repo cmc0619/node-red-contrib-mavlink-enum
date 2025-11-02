@@ -7,7 +7,7 @@ module.exports = function(RED) {
 
   // Parse XML to get message and enum definitions
   async function parseXMLDefinitions(xmlPath) {
-    const xml = fs.readFileSync(xmlPath, "utf8");
+    const xml = await fs.promises.readFile(xmlPath, "utf8");
     const parser = new xml2js.Parser();
     const result = await parser.parseStringPromise(xml);
 
@@ -22,7 +22,7 @@ module.exports = function(RED) {
           // Parse param definitions for MAV_CMD entries
           const params = (entry.param || [])
             .map(p => ({
-              index: parseInt(p.$.index || "0"),
+              index: parseInt(p.$.index || "0", 10),
               label: p.$.label || "",
               units: p.$.units || null,
               description: (p._ || "").trim()
@@ -97,12 +97,13 @@ module.exports = function(RED) {
     }
   });
 
-  RED.httpAdmin.get("/mavlink-msg/dialects", (req, res) => {
+  RED.httpAdmin.get("/mavlink-msg/dialects", async (req, res) => {
     try {
-      const files = fs.readdirSync(XML_DIR)
+      const files = await fs.promises.readdir(XML_DIR);
+      const dialects = files
         .filter(f => f.endsWith(".xml") && !f.includes("_"))
         .map(f => f.replace(".xml", ""));
-      res.json({ ok: true, dialects: files });
+      res.json({ ok: true, dialects });
     } catch (e) {
       res.status(500).json({ ok: false, error: e.message });
     }
@@ -122,7 +123,7 @@ module.exports = function(RED) {
       try {
         // Detect mode
         const isParseMode = msg.topic && typeof msg.topic === "string" && msg.topic.match(/^[A-Z_]+$/);
-        const isDynamicMode = !isParseMode && msg.payload && msg.payload.messageType;
+        const isDynamicMode = !isParseMode && msg.payload && typeof msg.payload.messageType === "string";
         const isStaticMode = !isParseMode && !isDynamicMode && node.messageType;
 
         // MODE 1: Parse incoming MAVLink message from comms
@@ -181,9 +182,11 @@ module.exports = function(RED) {
           // Type conversion
           if (value !== undefined && value !== null && value !== "") {
             if (field.type.includes("int") || field.type.includes("uint")) {
-              payload[field.name] = parseInt(value, 10);
+              const parsed = parseInt(value, 10);
+              payload[field.name] = isNaN(parsed) ? 0 : parsed;
             } else if (field.type === "float" || field.type === "double") {
-              payload[field.name] = parseFloat(value);
+              const parsed = parseFloat(value);
+              payload[field.name] = isNaN(parsed) ? 0.0 : parsed;
             } else if (field.type.includes("char[")) {
               payload[field.name] = String(value);
             } else if (field.type.includes("[")) {

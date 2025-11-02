@@ -37,7 +37,11 @@ module.exports = function(RED) {
       https.get(url, (res) => {
         if (res.statusCode === 302 || res.statusCode === 301) {
           // Follow redirect
-          return downloadXML(res.headers.location, outputPath).then(resolve).catch(reject);
+          const redirectUrl = res.headers.location;
+          if (!redirectUrl) {
+            return reject(new Error("Redirect without location header"));
+          }
+          return downloadXML(redirectUrl, outputPath).then(resolve).catch(reject);
         }
         if (res.statusCode !== 200) {
           return reject(new Error(`HTTP ${res.statusCode}`));
@@ -126,7 +130,7 @@ module.exports = function(RED) {
 
   // Parse XML to extract enum and message definitions
   async function parseXMLDefinitions(xmlPath) {
-    const xml = fs.readFileSync(xmlPath, "utf8");
+    const xml = await fs.promises.readFile(xmlPath, "utf8");
     const parser = new xml2js.Parser();
     const result = await parser.parseStringPromise(xml);
 
@@ -139,7 +143,7 @@ module.exports = function(RED) {
         const enumName = e.$.name;
         enums[enumName] = (e.entry || []).map(entry => ({
           name: entry.$.name,
-          value: entry.$.value || "0",
+          value: entry.$.value || "0",  // Keep as string to preserve hex/bitshift expressions
           description: entry.description?.[0] || ""
         }));
       });
@@ -150,7 +154,7 @@ module.exports = function(RED) {
       result.mavlink.messages[0].message.forEach(m => {
         const msgName = m.$.name;
         messages[msgName] = {
-          id: m.$.id,
+          id: parseInt(m.$.id, 10),
           description: m.description?.[0] || "",
           fields: (m.field || []).map(f => ({
             name: f.$.name,
@@ -410,7 +414,7 @@ module.exports = function(RED) {
         if (node.connectionType === "serial") {
           connection = new SerialPort({
             path: node.serialPort,
-            baudRate: parseInt(node.baudRate)
+            baudRate: parseInt(node.baudRate, 10)
           });
 
           connection.on("data", handleIncomingData);
