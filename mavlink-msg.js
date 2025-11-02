@@ -193,17 +193,31 @@ module.exports = function(RED) {
           }
         });
 
-        // Use node-mavlink to encode the message
-        const { MavLinkPacketSplitter, MavLinkPacketParser, common } = require("node-mavlink");
+        // Use node-mavlink to encode the message - import all available dialects
+        const mavlinkMappings = require("node-mavlink");
+        const { minimal, common, ardupilotmega, uavionix, icarous, asluav, development, ualberta, storm32 } = mavlinkMappings;
 
-        // TODO: Use selected dialect registry instead of hardcoded common
-        // For now this is a limitation - we parse any dialect but can only encode common messages
+        // Build registry map for all supported dialects
+        const dialectRegistries = {
+          'minimal': minimal.REGISTRY,
+          'common': common.REGISTRY,
+          'ardupilotmega': ardupilotmega.REGISTRY,
+          'uavionix': uavionix.REGISTRY,
+          'icarous': icarous.REGISTRY,
+          'asluav': asluav.REGISTRY || asluav.ASLUAV?.REGISTRY,
+          'development': development.REGISTRY,
+          'ualberta': ualberta.REGISTRY,
+          'storm32': storm32.REGISTRY,
+        };
+
+        const registry = dialectRegistries[node.dialect] || common.REGISTRY;
 
         // Find message class in registry
-        const messageClass = common.REGISTRY[msgDef.id];
+        const messageClass = registry[msgDef.id];
 
         if (!messageClass) {
-          throw new Error(`Message ${messageType} (id=${msgDef.id}) not found in node-mavlink registry. Only 'common' dialect messages can be sent currently.`);
+          const supportedDialects = Object.keys(dialectRegistries).join(', ');
+          throw new Error(`Message ${messageType} (id=${msgDef.id}) not found in ${node.dialect} registry. Supported dialects: ${supportedDialects}`);
         }
 
         // Create message instance

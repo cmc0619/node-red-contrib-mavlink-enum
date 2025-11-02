@@ -269,11 +269,26 @@ module.exports = function(RED) {
         const defs = await parseXMLDefinitions(xmlPath);
         node.context().global.set(`mavlink_defs_${node.id}`, defs);
 
-        // For now, use common registry from node-mavlink
-        // TODO: Dynamic loading of generated definitions
-        const { MavLinkPacketSplitter, MavLinkPacketParser, common } = require("node-mavlink");
+        // Load dialect-specific registry
+        const mavlinkMappings = require("node-mavlink");
+        const { MavLinkPacketSplitter, MavLinkPacketParser, minimal, common, ardupilotmega, uavionix, icarous, asluav, development, ualberta, storm32 } = mavlinkMappings;
 
-        parser = new MavLinkPacketParser(common.REGISTRY, node.mavlinkVersion === "2.0" ? 2 : 1);
+        // Build registry map for all supported dialects
+        const dialectRegistries = {
+          'minimal': minimal.REGISTRY,
+          'common': common.REGISTRY,
+          'ardupilotmega': ardupilotmega.REGISTRY,
+          'uavionix': uavionix.REGISTRY,
+          'icarous': icarous.REGISTRY,
+          'asluav': asluav.REGISTRY || asluav.ASLUAV?.REGISTRY,
+          'development': development.REGISTRY,
+          'ualberta': ualberta.REGISTRY,
+          'storm32': storm32.REGISTRY,
+        };
+
+        const registry = dialectRegistries[node.dialect] || common.REGISTRY;
+
+        parser = new MavLinkPacketParser(registry, node.mavlinkVersion === "2.0" ? 2 : 1);
 
         node.status({ fill: "green", shape: "dot", text: `ready (${node.dialect})` });
         return true;
