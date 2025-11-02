@@ -433,11 +433,16 @@ module.exports = function(RED) {
             node.status({ fill: "red", shape: "dot", text: "udp error" });
           });
 
-          connection.bind(node.port);
-          node.status({ fill: "green", shape: "dot", text: `udp: ${node.host}:${node.port}` });
+          // Use bind callback to ensure port is actually bound before showing success
+          node.status({ fill: "yellow", shape: "ring", text: "binding..." });
+          connection.bind(node.port, () => {
+            node.status({ fill: "green", shape: "dot", text: `udp: ${node.host}:${node.port}` });
+          });
 
         } else if (node.connectionType === "tcp") {
           connection = new net.Socket();
+
+          node.status({ fill: "yellow", shape: "ring", text: "connecting..." });
 
           connection.connect(node.port, node.host, () => {
             node.status({ fill: "green", shape: "dot", text: `tcp: ${node.host}:${node.port}` });
@@ -448,6 +453,10 @@ module.exports = function(RED) {
           connection.on("error", (err) => {
             node.error(`TCP error: ${err.message}`);
             node.status({ fill: "red", shape: "dot", text: "tcp error" });
+          });
+
+          connection.on("close", () => {
+            node.status({ fill: "red", shape: "ring", text: "disconnected" });
           });
         }
 
@@ -462,17 +471,43 @@ module.exports = function(RED) {
 
     // Cleanup
     node.on("close", (done) => {
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+
+      // Remove splitter event listeners to prevent leaks
+      if (splitter) {
+        splitter.removeAllListeners();
+        splitter = null;
+      }
+
+      // Null out parser
+      parser = null;
 
       if (connection) {
-        if (node.connectionType === "serial" && connection.isOpen) {
-          connection.close(done);
+        if (node.connectionType === "serial") {
+          // Check if connection has close method before checking isOpen
+          if (typeof connection.close === "function") {
+            connection.close(() => {
+              connection = null;
+              done();
+            });
+          } else {
+            connection = null;
+            done();
+          }
         } else if (node.connectionType === "udp") {
-          connection.close(done);
+          connection.close(() => {
+            connection = null;
+            done();
+          });
         } else if (node.connectionType === "tcp") {
           connection.destroy();
+          connection = null;
           done();
         } else {
+          connection = null;
           done();
         }
       } else {
