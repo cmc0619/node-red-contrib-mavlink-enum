@@ -255,6 +255,7 @@ module.exports = function(RED) {
     let connection = null;
     let heartbeatTimer = null;
     let parser = null;
+    let splitter = null;
 
     // Load MAVLink parser for selected dialect
     async function initParser() {
@@ -290,23 +291,8 @@ module.exports = function(RED) {
 
         parser = new MavLinkPacketParser(registry, node.mavlinkVersion === "2.0" ? 2 : 1);
 
-        node.status({ fill: "green", shape: "dot", text: `ready (${node.dialect})` });
-        return true;
-      } catch (err) {
-        node.error(`Parser init failed: ${err.message}`);
-        node.status({ fill: "red", shape: "dot", text: "parser error" });
-        return false;
-      }
-    }
-
-    // Handle incoming MAVLink data
-    function handleIncomingData(buffer) {
-      try {
-        if (!parser) return;
-
-        const { MavLinkPacketSplitter } = require("node-mavlink");
-        const splitter = new MavLinkPacketSplitter();
-
+        // Create single packet splitter instance and set up event listener once
+        splitter = new MavLinkPacketSplitter();
         splitter.on("data", (packet) => {
           try {
             const message = parser.parse(packet);
@@ -330,6 +316,21 @@ module.exports = function(RED) {
           }
         });
 
+        node.status({ fill: "green", shape: "dot", text: `ready (${node.dialect})` });
+        return true;
+      } catch (err) {
+        node.error(`Parser init failed: ${err.message}`);
+        node.status({ fill: "red", shape: "dot", text: "parser error" });
+        return false;
+      }
+    }
+
+    // Handle incoming MAVLink data
+    function handleIncomingData(buffer) {
+      try {
+        if (!parser || !splitter) return;
+
+        // Reuse the single splitter instance created in initParser
         splitter.write(buffer);
       } catch (err) {
         node.warn(`Data handling error: ${err.message}`);

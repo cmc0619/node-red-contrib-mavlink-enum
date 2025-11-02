@@ -35,7 +35,7 @@ module.exports = function(RED) {
 
           return {
             name: entry.$.name,
-            value: parseInt(entry.$.value || "0"),
+            value: parseInt(entry.$.value || "0", 10),
             description: entry.description?.[0] || "",
             params: params.length > 0 ? params : null  // Only include if params exist
           };
@@ -48,7 +48,7 @@ module.exports = function(RED) {
       result.mavlink.messages[0].message.forEach(m => {
         const msgName = m.$.name;
         messages[msgName] = {
-          id: parseInt(m.$.id),
+          id: parseInt(m.$.id, 10),
           description: m.description?.[0] || "",
           fields: (m.field || []).map(f => ({
             name: f.$.name,
@@ -115,8 +115,8 @@ module.exports = function(RED) {
     node.dialect = config.dialect || "common";
     node.messageType = config.messageType || "";
     node.fields = config.fields || {};
-    node.systemId = parseInt(config.systemId || "1");
-    node.componentId = parseInt(config.componentId || "1");
+    node.systemId = parseInt(config.systemId || "1", 10);
+    node.componentId = parseInt(config.componentId || "1", 10);
 
     node.on("input", async (msg, send, done) => {
       try {
@@ -181,7 +181,7 @@ module.exports = function(RED) {
           // Type conversion
           if (value !== undefined && value !== null && value !== "") {
             if (field.type.includes("int") || field.type.includes("uint")) {
-              payload[field.name] = parseInt(value);
+              payload[field.name] = parseInt(value, 10);
             } else if (field.type === "float" || field.type === "double") {
               payload[field.name] = parseFloat(value);
             } else if (field.type.includes("char[")) {
@@ -190,6 +190,8 @@ module.exports = function(RED) {
               // Array type
               if (Array.isArray(value)) {
                 payload[field.name] = value;
+              } else if (typeof value === "string") {
+                payload[field.name] = value.split(",").map(v => v.trim());
               } else {
                 payload[field.name] = String(value).split(",").map(v => v.trim());
               }

@@ -159,7 +159,8 @@ return msg;
       if (!msg) return;
 
       if (msg.description) {
-        $container.append($(`<div class="form-tips" style="margin-bottom:10px;">${msg.description}</div>`));
+        const $desc = $('<div class="form-tips" style="margin-bottom:10px;"></div>').text(msg.description);
+        $container.append($desc);
       }
 
       if (msg.fields.length === 0) {
@@ -184,7 +185,8 @@ return msg;
           $input.append($('<option value="">-- Select --</option>'));
           allEnums[field.enum].forEach(entry => {
             const label = entry.description ? `${entry.name} (${entry.value}) - ${entry.description}` : `${entry.name} (${entry.value})`;
-            $input.append($(`<option value="${entry.value}">${label}</option>`));
+            const $option = $('<option></option>').val(entry.value).text(label);
+            $input.append($option);
           });
 
           // Special handling for MAV_CMD
@@ -222,7 +224,8 @@ return msg;
           if (field.units) tipText.push(`Units: ${field.units}`);
           if (field.description) tipText.push(field.description);
 
-          $row.append($(`<div class="form-tips" style="margin-left:110px;">${tipText.join(" | ")}</div>`));
+          const $tips = $('<div class="form-tips" style="margin-left:110px;"></div>').text(tipText.join(" | "));
+          $row.append($tips);
         }
 
         $container.append($row);
@@ -275,7 +278,8 @@ return msg;
           let tipText = [];
           if (param.units) tipText.push(`Units: ${param.units}`);
           if (param.description) tipText.push(param.description);
-          $row.append($(`<div class="form-tips" style="margin-left:110px;">${tipText.join(" | ")}</div>`));
+          const $tips = $('<div class="form-tips" style="margin-left:110px;"></div>').text(tipText.join(" | "));
+          $row.append($tips);
         }
 
         // Insert before confirmation field (or at end if no confirmation)
@@ -358,6 +362,9 @@ return msg;
               $messageType.val(this.messageType);
               generateFieldUI(this.messageType);
             }
+          }).catch(err => {
+            console.error("Failed to load dialect definitions:", err);
+            RED.notify("Failed to load dialect definitions", "error");
           });
         });
 
@@ -370,6 +377,9 @@ return msg;
           ]).then(() => {
             $messageType.val("");
             $("#message-fields-container").empty().append($('<div class="form-tips">Select a message type to configure fields</div>'));
+          }).catch(err => {
+            console.error("Failed to load dialect definitions:", err);
+            RED.notify("Failed to load dialect definitions", "error");
           });
         });
 
@@ -399,7 +409,12 @@ return msg;
       },
       oneditsave: function() {
         saveFieldValues();
-        this.fields = JSON.parse($("#node-input-fields").val() || "{}");
+        try {
+          this.fields = JSON.parse($("#node-input-fields").val() || "{}");
+        } catch (e) {
+          console.error("Failed to parse fields:", e);
+          this.fields = {};
+        }
       }
     });
   })();
