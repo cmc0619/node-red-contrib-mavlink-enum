@@ -18,11 +18,28 @@ module.exports = function(RED) {
     if (result.mavlink?.enums?.[0]?.enum) {
       result.mavlink.enums[0].enum.forEach(e => {
         const enumName = e.$.name;
-        enums[enumName] = (e.entry || []).map(entry => ({
-          name: entry.$.name,
-          value: parseInt(entry.$.value || "0"),
-          description: entry.description?.[0] || ""
-        }));
+        enums[enumName] = (e.entry || []).map(entry => {
+          // Parse param definitions for MAV_CMD entries
+          const params = (entry.param || [])
+            .map(p => ({
+              index: parseInt(p.$.index || "0"),
+              label: p.$.label || "",
+              units: p.$.units || null,
+              description: (p._ || "").trim()
+            }))
+            .filter(p => {
+              // Filter out empty/unused params
+              const desc = p.description.toLowerCase();
+              return p.description && desc !== "empty" && desc !== "unused" && desc !== "reserved";
+            });
+
+          return {
+            name: entry.$.name,
+            value: parseInt(entry.$.value || "0"),
+            description: entry.description?.[0] || "",
+            params: params.length > 0 ? params : null  // Only include if params exist
+          };
+        });
       });
     }
 

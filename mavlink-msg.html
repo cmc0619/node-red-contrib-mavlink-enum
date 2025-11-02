@@ -232,6 +232,81 @@ return msg;
           $input.val(currentNode.fields[field.name]);
         }
       });
+
+      // Add event handler for MAV_CMD selector to update param fields
+      $container.find(".mav-cmd-selector").on("change", function() {
+        updateCommandParams($(this).val());
+      });
+    }
+
+    function updateCommandParams(commandValue) {
+      if (!commandValue || !allEnums["MAV_CMD"]) return;
+
+      // Find the selected command's enum entry
+      const commandEntry = allEnums["MAV_CMD"].find(e => e.value == commandValue);
+      if (!commandEntry || !commandEntry.params) return;
+
+      const $container = $("#message-fields-container");
+
+      // Remove existing param1-7 fields
+      for (let i = 1; i <= 7; i++) {
+        $container.find(`[data-field="param${i}"]`).closest(".form-row").remove();
+      }
+
+      // Add only the defined params
+      commandEntry.params.forEach(param => {
+        const fieldName = `param${param.index}`;
+        const $row = $('<div class="form-row"></div>');
+
+        // Create label with param label and description
+        let labelText = `param${param.index}`;
+        if (param.label) {
+          labelText += ` (${param.label})`;
+        }
+        const $label = $(`<label for="field-${fieldName}"><i class="fa fa-tag"></i> ${labelText}</label>`);
+        $row.append($label);
+
+        // Create input field
+        const $input = $(`<input type="number" step="any" id="field-${fieldName}" data-field="${fieldName}" placeholder="0">`);
+        $row.append($input);
+
+        // Add description and units tooltip
+        if (param.description || param.units) {
+          let tipText = [];
+          if (param.units) tipText.push(`Units: ${param.units}`);
+          if (param.description) tipText.push(param.description);
+          $row.append($(`<div class="form-tips" style="margin-left:110px;">${tipText.join(" | ")}</div>`));
+        }
+
+        // Insert before confirmation field (or at end if no confirmation)
+        const $confirmationRow = $container.find('[data-field="confirmation"]').closest(".form-row");
+        if ($confirmationRow.length > 0) {
+          $confirmationRow.after($row);
+        } else {
+          $container.append($row);
+        }
+
+        // Restore saved value if exists
+        if (currentNode.fields && currentNode.fields[fieldName] !== undefined) {
+          $input.val(currentNode.fields[fieldName]);
+        }
+      });
+
+      // Add note about unused params
+      if (commandEntry.params.length < 7) {
+        const unusedParams = [];
+        for (let i = 1; i <= 7; i++) {
+          if (!commandEntry.params.find(p => p.index === i)) {
+            unusedParams.push(i);
+          }
+        }
+        if (unusedParams.length > 0) {
+          const $note = $(`<div class="form-tips" style="margin-left:110px; color:#666;">
+            <i>param${unusedParams.join(", param")} not used for this command (will be set to 0)</i>
+          </div>`);
+          $container.append($note);
+        }
+      }
     }
 
     function saveFieldValues() {
