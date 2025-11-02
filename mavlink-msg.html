@@ -242,7 +242,7 @@ return msg;
           Promise.all([
             loadMessages($dialect.val()),
             loadEnums($dialect.val())
-          ]).done(() => {
+          ]).then(() => {
             if (this.messageType) {
               $messageType.val(this.messageType);
               generateFieldUI(this.messageType);
@@ -256,7 +256,7 @@ return msg;
           Promise.all([
             loadMessages(dialect),
             loadEnums(dialect)
-          ]).done(() => {
+          ]).then(() => {
             $messageType.val("");
             $("#message-fields-container").empty().append($('<div class="form-tips">Select a message type to configure fields</div>'));
           });
