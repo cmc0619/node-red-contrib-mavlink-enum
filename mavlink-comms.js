@@ -269,11 +269,26 @@ module.exports = function(RED) {
         const defs = await parseXMLDefinitions(xmlPath);
         node.context().global.set(`mavlink_defs_${node.id}`, defs);
 
-        // For now, use common registry from node-mavlink
-        // TODO: Dynamic loading of generated definitions
-        const { MavLinkPacketSplitter, MavLinkPacketParser, common } = require("node-mavlink");
+        // Load dialect-specific registry
+        const mavlinkMappings = require("node-mavlink");
+        const { MavLinkPacketSplitter, MavLinkPacketParser, minimal, common, ardupilotmega, uavionix, icarous, asluav, development, ualberta, storm32 } = mavlinkMappings;
 
-        parser = new MavLinkPacketParser(common.REGISTRY, node.mavlinkVersion === "2.0" ? 2 : 1);
+        // Build registry map for all supported dialects
+        const dialectRegistries = {
+          'minimal': minimal.REGISTRY,
+          'common': common.REGISTRY,
+          'ardupilotmega': ardupilotmega.REGISTRY,
+          'uavionix': uavionix.REGISTRY,
+          'icarous': icarous.REGISTRY,
+          'asluav': asluav.REGISTRY || asluav.ASLUAV?.REGISTRY,
+          'development': development.REGISTRY,
+          'ualberta': ualberta.REGISTRY,
+          'storm32': storm32.REGISTRY,
+        };
+
+        const registry = dialectRegistries[node.dialect] || common.REGISTRY;
+
+        parser = new MavLinkPacketParser(registry, node.mavlinkVersion === "2.0" ? 2 : 1);
 
         node.status({ fill: "green", shape: "dot", text: `ready (${node.dialect})` });
         return true;
@@ -321,7 +336,7 @@ module.exports = function(RED) {
       }
     }
 
-    // Send heartbeat
+    // Send heartbeat and check for outgoing messages
     function sendHeartbeat() {
       try {
         // Get pending outgoing message from context
@@ -343,10 +358,45 @@ module.exports = function(RED) {
           node.context().flow.set("mavlink_outgoing", null);
         }
 
-        // TODO: Actually send HEARTBEAT message here
-        // For now just checking for outgoing messages
+        // Send HEARTBEAT message (MAVLink protocol requirement)
+        try {
+          const { common } = require("node-mavlink");
+
+          // Create HEARTBEAT message
+          // System ID 255 = Ground Control Station
+          // Component ID 190 = Generic companion computer
+          const heartbeat = new common.HeartbeatMessage(
+            255,  // system_id (GCS)
+            190   // component_id (companion computer)
+          );
+
+          // Configure heartbeat fields
+          heartbeat.type = 6;              // MAV_TYPE_GCS
+          heartbeat.autopilot = 0;         // MAV_AUTOPILOT_GENERIC
+          heartbeat.baseMode = 0;          // No specific mode
+          heartbeat.customMode = 0;        // No custom mode
+          heartbeat.systemStatus = 4;      // MAV_STATE_ACTIVE
+          heartbeat.mavlinkVersion = 3;    // MAVLink v2
+
+          // Serialize to bytes
+          const bytes = heartbeat.serialize();
+
+          // Send heartbeat
+          if (connection) {
+            if (node.connectionType === "serial") {
+              connection.write(Buffer.from(bytes));
+            } else if (node.connectionType === "udp") {
+              connection.send(Buffer.from(bytes), node.port, node.host);
+            } else if (node.connectionType === "tcp") {
+              connection.write(Buffer.from(bytes));
+            }
+          }
+        } catch (hbErr) {
+          node.warn(`HEARTBEAT creation failed: ${hbErr.message}`);
+        }
+
       } catch (err) {
-        node.warn(`Heartbeat error: ${err.message}`);
+        node.warn(`Heartbeat timer error: ${err.message}`);
       }
     }
 

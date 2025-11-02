@@ -89,15 +89,51 @@ return msg;
         if (data.ok && Object.keys(data.messages).length > 0) {
           allMessages = data.messages;
 
-          // Sort messages by name
-          const sortedNames = Object.keys(data.messages).sort();
+          // Filter to only "sendable" messages (commands, not telemetry)
+          const isSendable = (name) => {
+            // Common command patterns
+            if (name.startsWith('COMMAND_')) return true;
+            if (name.startsWith('SET_')) return true;
+            if (name.startsWith('PARAM_')) return true;
+            if (name.startsWith('MISSION_')) return true;
+            if (name.startsWith('REQUEST_')) return true;
+            if (name.startsWith('MANUAL_')) return true;
+            if (name.startsWith('RC_CHANNELS_OVERRIDE')) return true;
+            if (name.startsWith('LOG_')) return true;
 
-          $msg.append($("<option/>").text("-- Select Message --").val(""));
-          sortedNames.forEach(name => {
-            const msg = data.messages[name];
-            const label = `${name} (${msg.id})`;
-            $msg.append($("<option/>").text(label).val(name));
-          });
+            // Common telemetry messages to exclude
+            const telemetry = [
+              'HEARTBEAT', 'SYS_STATUS', 'SYSTEM_TIME', 'PING',
+              'GPS_RAW_INT', 'GPS_STATUS', 'SCALED_IMU', 'RAW_IMU',
+              'ATTITUDE', 'ATTITUDE_QUATERNION', 'LOCAL_POSITION_NED',
+              'GLOBAL_POSITION_INT', 'RC_CHANNELS', 'SERVO_OUTPUT_RAW',
+              'MISSION_CURRENT', 'NAV_CONTROLLER_OUTPUT', 'VFR_HUD',
+              'STATUSTEXT', 'DEBUG', 'NAMED_VALUE_FLOAT', 'NAMED_VALUE_INT',
+              'BATTERY_STATUS', 'AUTOPILOT_VERSION', 'VIBRATION', 'HOME_POSITION',
+              'ALTITUDE', 'TERRAIN_REPORT', 'WIND_COV', 'GPS_INPUT', 'GPS_RTCM_DATA',
+              'HIGH_LATENCY', 'ESTIMATOR_STATUS', 'POWER_STATUS'
+            ];
+
+            return !telemetry.includes(name);
+          };
+
+          // Sort and filter messages
+          const sendableNames = Object.keys(data.messages)
+            .filter(isSendable)
+            .sort();
+
+          $msg.append($("<option/>").text("-- None (Dynamic) --").val(""));
+          $msg.append($("<option/>").text("──────────────").val("").attr("disabled", true));
+
+          if (sendableNames.length === 0) {
+            $msg.append($("<option/>").text("No sendable messages found").val(""));
+          } else {
+            sendableNames.forEach(name => {
+              const msg = data.messages[name];
+              const label = `${name} (${msg.id})`;
+              $msg.append($("<option/>").text(label).val(name));
+            });
+          }
         } else {
           $msg.append($("<option/>").text("No messages found").val(""));
         }
@@ -196,6 +232,81 @@ return msg;
           $input.val(currentNode.fields[field.name]);
         }
       });
+
+      // Add event handler for MAV_CMD selector to update param fields
+      $container.find(".mav-cmd-selector").on("change", function() {
+        updateCommandParams($(this).val());
+      });
+    }
+
+    function updateCommandParams(commandValue) {
+      if (!commandValue || !allEnums["MAV_CMD"]) return;
+
+      // Find the selected command's enum entry
+      const commandEntry = allEnums["MAV_CMD"].find(e => e.value == commandValue);
+      if (!commandEntry || !commandEntry.params) return;
+
+      const $container = $("#message-fields-container");
+
+      // Remove existing param1-7 fields
+      for (let i = 1; i <= 7; i++) {
+        $container.find(`[data-field="param${i}"]`).closest(".form-row").remove();
+      }
+
+      // Add only the defined params
+      commandEntry.params.forEach(param => {
+        const fieldName = `param${param.index}`;
+        const $row = $('<div class="form-row"></div>');
+
+        // Create label with param label and description
+        let labelText = `param${param.index}`;
+        if (param.label) {
+          labelText += ` (${param.label})`;
+        }
+        const $label = $(`<label for="field-${fieldName}"><i class="fa fa-tag"></i> ${labelText}</label>`);
+        $row.append($label);
+
+        // Create input field
+        const $input = $(`<input type="number" step="any" id="field-${fieldName}" data-field="${fieldName}" placeholder="0">`);
+        $row.append($input);
+
+        // Add description and units tooltip
+        if (param.description || param.units) {
+          let tipText = [];
+          if (param.units) tipText.push(`Units: ${param.units}`);
+          if (param.description) tipText.push(param.description);
+          $row.append($(`<div class="form-tips" style="margin-left:110px;">${tipText.join(" | ")}</div>`));
+        }
+
+        // Insert before confirmation field (or at end if no confirmation)
+        const $confirmationRow = $container.find('[data-field="confirmation"]').closest(".form-row");
+        if ($confirmationRow.length > 0) {
+          $confirmationRow.after($row);
+        } else {
+          $container.append($row);
+        }
+
+        // Restore saved value if exists
+        if (currentNode.fields && currentNode.fields[fieldName] !== undefined) {
+          $input.val(currentNode.fields[fieldName]);
+        }
+      });
+
+      // Add note about unused params
+      if (commandEntry.params.length < 7) {
+        const unusedParams = [];
+        for (let i = 1; i <= 7; i++) {
+          if (!commandEntry.params.find(p => p.index === i)) {
+            unusedParams.push(i);
+          }
+        }
+        if (unusedParams.length > 0) {
+          const $note = $(`<div class="form-tips" style="margin-left:110px; color:#666;">
+            <i>param${unusedParams.join(", param")} not used for this command (will be set to 0)</i>
+          </div>`);
+          $container.append($note);
+        }
+      }
     }
 
     function saveFieldValues() {
@@ -215,7 +326,7 @@ return msg;
       color: "#87CEEB",
       defaults: {
         dialect: { value: "common", required: true },
-        messageType: { value: "", required: true },
+        messageType: { value: "" },  // Not required - can be empty for dynamic mode
         systemId: { value: 1, required: true, validate: RED.validators.number() },
         componentId: { value: 1, required: true, validate: RED.validators.number() },
         fields: { value: {} }
@@ -268,7 +379,21 @@ return msg;
           if (msgType) {
             generateFieldUI(msgType);
           } else {
-            $("#message-fields-container").empty().append($('<div class="form-tips">Select a message type to configure fields</div>'));
+            // None selected - show dynamic mode help
+            $("#message-fields-container").empty().append($(`
+              <div class="form-tips">
+                <strong>Dynamic Mode</strong><br>
+                Send message via msg.payload:<br>
+                <pre style="margin-top:5px;">msg.payload = {
+  messageType: "COMMAND_LONG",
+  command: 400,
+  param1: 1.0,
+  param2: 0,
+  ...
+}</pre>
+                Or use for parsing incoming messages from mavlink-comms.
+              </div>
+            `));
           }
         });
       },

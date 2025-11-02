@@ -18,11 +18,28 @@ module.exports = function(RED) {
     if (result.mavlink?.enums?.[0]?.enum) {
       result.mavlink.enums[0].enum.forEach(e => {
         const enumName = e.$.name;
-        enums[enumName] = (e.entry || []).map(entry => ({
-          name: entry.$.name,
-          value: parseInt(entry.$.value || "0"),
-          description: entry.description?.[0] || ""
-        }));
+        enums[enumName] = (e.entry || []).map(entry => {
+          // Parse param definitions for MAV_CMD entries
+          const params = (entry.param || [])
+            .map(p => ({
+              index: parseInt(p.$.index || "0"),
+              label: p.$.label || "",
+              units: p.$.units || null,
+              description: (p._ || "").trim()
+            }))
+            .filter(p => {
+              // Filter out empty/unused params
+              const desc = p.description.toLowerCase();
+              return p.description && desc !== "empty" && desc !== "unused" && desc !== "reserved";
+            });
+
+          return {
+            name: entry.$.name,
+            value: parseInt(entry.$.value || "0"),
+            description: entry.description?.[0] || "",
+            params: params.length > 0 ? params : null  // Only include if params exist
+          };
+        });
       });
     }
 
@@ -103,8 +120,43 @@ module.exports = function(RED) {
 
     node.on("input", async (msg, send, done) => {
       try {
-        if (!node.messageType) {
-          throw new Error("No message type configured");
+        // Detect mode
+        const isParseMode = msg.topic && typeof msg.topic === "string" && msg.topic.match(/^[A-Z_]+$/);
+        const isDynamicMode = !isParseMode && msg.payload && msg.payload.messageType;
+        const isStaticMode = !isParseMode && !isDynamicMode && node.messageType;
+
+        // MODE 1: Parse incoming MAVLink message from comms
+        if (isParseMode) {
+          // Just pass through the parsed data, maybe add formatting later
+          send({
+            payload: msg.payload,
+            topic: msg.topic,
+            mavlink: msg.mavlink || msg.payload
+          });
+          node.status({ fill: "blue", shape: "dot", text: `parsed: ${msg.topic}` });
+          done();
+          return;
+        }
+
+        // For send modes, determine message type
+        let messageType;
+        let fieldValues = {};
+
+        if (isDynamicMode) {
+          // MODE 2: Dynamic send from msg.payload
+          messageType = msg.payload.messageType;
+          fieldValues = msg.payload;
+        } else if (isStaticMode) {
+          // MODE 3: Static send from config
+          messageType = node.messageType;
+          fieldValues = { ...node.fields };
+
+          // Allow override from msg.payload
+          if (msg.payload && typeof msg.payload === "object") {
+            Object.assign(fieldValues, msg.payload);
+          }
+        } else {
+          throw new Error("No message type configured or provided");
         }
 
         // Load message definition
@@ -114,22 +166,17 @@ module.exports = function(RED) {
         }
 
         const { messages, enums } = await parseXMLDefinitions(xmlPath);
-        const msgDef = messages[node.messageType];
+        const msgDef = messages[messageType];
 
         if (!msgDef) {
-          throw new Error(`Message type not found: ${node.messageType}`);
+          throw new Error(`Message type not found: ${messageType}`);
         }
 
-        // Build message payload
+        // Build message payload with type conversion
         const payload = {};
 
         msgDef.fields.forEach(field => {
-          let value = node.fields[field.name];
-
-          // Allow override from incoming message
-          if (msg.payload && typeof msg.payload === "object" && msg.payload[field.name] !== undefined) {
-            value = msg.payload[field.name];
-          }
+          let value = fieldValues[field.name];
 
           // Type conversion
           if (value !== undefined && value !== null && value !== "") {
@@ -163,17 +210,31 @@ module.exports = function(RED) {
           }
         });
 
-        // Use node-mavlink to encode the message
-        const { MavLinkPacketSplitter, MavLinkPacketParser, common } = require("node-mavlink");
+        // Use node-mavlink to encode the message - import all available dialects
+        const mavlinkMappings = require("node-mavlink");
+        const { minimal, common, ardupilotmega, uavionix, icarous, asluav, development, ualberta, storm32 } = mavlinkMappings;
 
-        // TODO: Use selected dialect registry instead of hardcoded common
-        // For now this is a limitation - we parse any dialect but can only encode common messages
+        // Build registry map for all supported dialects
+        const dialectRegistries = {
+          'minimal': minimal.REGISTRY,
+          'common': common.REGISTRY,
+          'ardupilotmega': ardupilotmega.REGISTRY,
+          'uavionix': uavionix.REGISTRY,
+          'icarous': icarous.REGISTRY,
+          'asluav': asluav.REGISTRY || asluav.ASLUAV?.REGISTRY,
+          'development': development.REGISTRY,
+          'ualberta': ualberta.REGISTRY,
+          'storm32': storm32.REGISTRY,
+        };
+
+        const registry = dialectRegistries[node.dialect] || common.REGISTRY;
 
         // Find message class in registry
-        const messageClass = common.REGISTRY[msgDef.id];
+        const messageClass = registry[msgDef.id];
 
         if (!messageClass) {
-          throw new Error(`Message ${node.messageType} (id=${msgDef.id}) not found in node-mavlink registry. Only 'common' dialect messages can be sent currently.`);
+          const supportedDialects = Object.keys(dialectRegistries).join(', ');
+          throw new Error(`Message ${messageType} (id=${msgDef.id}) not found in ${node.dialect} registry. Supported dialects: ${supportedDialects}`);
         }
 
         // Create message instance
@@ -194,7 +255,7 @@ module.exports = function(RED) {
 
         // Publish to internal bus for mavlink-comms to send
         node.context().flow.set("mavlink_outgoing", {
-          message: node.messageType,
+          message: messageType,
           payload,
           bytes: Array.from(bytes)
         });
@@ -202,7 +263,7 @@ module.exports = function(RED) {
         // Also output the message data for debugging/logging
         send({
           payload: {
-            message: node.messageType,
+            message: messageType,
             fields: payload,
             systemId: node.systemId,
             componentId: node.componentId
@@ -210,7 +271,7 @@ module.exports = function(RED) {
           topic: "mavlink_outgoing"
         });
 
-        node.status({ fill: "green", shape: "dot", text: `sent: ${node.messageType}` });
+        node.status({ fill: "green", shape: "dot", text: `sent: ${messageType}` });
         done();
 
       } catch (err) {
