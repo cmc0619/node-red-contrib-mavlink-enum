@@ -7,6 +7,7 @@ module.exports = function(RED) {
   const net = require("net");
   const { execSync } = require("child_process");
   const xml2js = require("xml2js");
+  const { common: mavlinkCommon } = require("node-mavlink");
 
   // Global storage for XML definitions and generated classes
   const XML_DIR = path.join(RED.settings.userDir, "mavlink-xmls");
@@ -361,12 +362,10 @@ module.exports = function(RED) {
 
         // Send HEARTBEAT message (MAVLink protocol requirement)
         try {
-          const { common } = require("node-mavlink");
-
-          // Create HEARTBEAT message
+          // Create HEARTBEAT message (using cached mavlinkCommon from module level)
           // System ID 255 = Ground Control Station
           // Component ID 190 = Generic companion computer
-          const heartbeat = new common.HeartbeatMessage(
+          const heartbeat = new mavlinkCommon.HeartbeatMessage(
             255,  // system_id (GCS)
             190   // component_id (companion computer)
           );

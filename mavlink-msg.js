@@ -5,8 +5,16 @@ module.exports = function(RED) {
 
   const XML_DIR = path.join(RED.settings.userDir, "mavlink-xmls");
 
-  // Parse XML to get message and enum definitions
+  // Cache for parsed XML definitions (keyed by dialect name)
+  const definitionsCache = {};
+
+  // Parse XML to get message and enum definitions (with caching)
   async function parseXMLDefinitions(xmlPath) {
+    // Check cache first
+    const cacheKey = path.basename(xmlPath);
+    if (definitionsCache[cacheKey]) {
+      return definitionsCache[cacheKey];
+    }
     const xml = fs.readFileSync(xmlPath, "utf8");
     const parser = new xml2js.Parser();
     const result = await parser.parseStringPromise(xml);
@@ -61,7 +69,12 @@ module.exports = function(RED) {
       });
     }
 
-    return { enums, messages };
+    const result = { enums, messages };
+
+    // Store in cache
+    definitionsCache[cacheKey] = result;
+
+    return result;
   }
 
   // Admin endpoints
@@ -107,6 +120,22 @@ module.exports = function(RED) {
       res.status(500).json({ ok: false, error: e.message });
     }
   });
+
+  // Load node-mavlink and build registry map once at module level
+  const mavlinkMappings = require("node-mavlink");
+  const { minimal, common, ardupilotmega, uavionix, icarous, asluav, development, ualberta, storm32 } = mavlinkMappings;
+
+  const dialectRegistries = {
+    'minimal': minimal.REGISTRY,
+    'common': common.REGISTRY,
+    'ardupilotmega': ardupilotmega.REGISTRY,
+    'uavionix': uavionix.REGISTRY,
+    'icarous': icarous.REGISTRY,
+    'asluav': asluav.REGISTRY || asluav.ASLUAV?.REGISTRY,
+    'development': development.REGISTRY,
+    'ualberta': ualberta.REGISTRY,
+    'storm32': storm32.REGISTRY,
+  };
 
   function MavlinkMsgNode(config) {
     RED.nodes.createNode(this, config);
@@ -212,23 +241,7 @@ module.exports = function(RED) {
           }
         });
 
-        // Use node-mavlink to encode the message - import all available dialects
-        const mavlinkMappings = require("node-mavlink");
-        const { minimal, common, ardupilotmega, uavionix, icarous, asluav, development, ualberta, storm32 } = mavlinkMappings;
-
-        // Build registry map for all supported dialects
-        const dialectRegistries = {
-          'minimal': minimal.REGISTRY,
-          'common': common.REGISTRY,
-          'ardupilotmega': ardupilotmega.REGISTRY,
-          'uavionix': uavionix.REGISTRY,
-          'icarous': icarous.REGISTRY,
-          'asluav': asluav.REGISTRY || asluav.ASLUAV?.REGISTRY,
-          'development': development.REGISTRY,
-          'ualberta': ualberta.REGISTRY,
-          'storm32': storm32.REGISTRY,
-        };
-
+        // Use cached dialect registry (loaded at module level)
         const registry = dialectRegistries[node.dialect] || common.REGISTRY;
 
         // Find message class in registry
