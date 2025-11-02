@@ -7,8 +7,11 @@ A comprehensive Node-RED MAVLink driver with dynamic dialect support, serial/UDP
 - **Full MAVLink Protocol Support**: v1.0 and v2.0
 - **Multiple Connection Types**: Serial, UDP, and TCP
 - **Dynamic Dialect Management**: Auto-downloads all official MAVLink dialects
+- **Complete Dialect Support**: Send and receive messages from any dialect (common, ardupilotmega, storm32, etc.)
 - **Intelligent Message Builder**: Dynamic UI based on selected message type
+- **Three Operating Modes**: Static send, dynamic send, and incoming message parsing
 - **Enum Support**: Dropdowns for all enum fields with descriptions
+- **Auto-HEARTBEAT**: Automatic heartbeat generation (MAVLink protocol compliant)
 - **No Wired Connections**: Nodes communicate via internal message bus
 - **XML Versioning**: Keeps historical versions of dialect definitions
 
@@ -54,37 +57,43 @@ Click "Update XMLs" to download all available dialects:
 
 ### mavlink-msg
 
-The message builder node constructs MAVLink messages with a dynamic UI.
+A bidirectional message builder that can send commands and parse incoming telemetry.
 
-**Features:**
-- Select any message from chosen dialect
-- Dynamic form generation based on message fields
-- Enum fields show as dropdowns with descriptions
-- Support for all MAVLink field types (int, float, arrays, strings)
-- Can override field values from incoming msg.payload
+**Three Operating Modes:**
 
-**Usage:**
-1. Select a dialect (must match your mavlink-comms node)
-2. Select a message type
-3. Configure message fields
-4. Send input to trigger message transmission
-
-**Field Configuration:**
-
-Static (in editor):
+#### 1. Static Send (Message selected from dropdown)
+Configure a specific message type (e.g., COMMAND_LONG) and set field values in the UI.
 ```
-Set values directly in the node configuration UI
+[Inject] → [mavlink-msg: COMMAND_LONG] → comms → drone
 ```
 
-Dynamic (via msg.payload):
+#### 2. Dynamic Send (Message = "None")
+Build messages dynamically from your flow:
 ```javascript
 msg.payload = {
-  param1: 10.5,
-  param2: 20.0,
-  target_system: 1
+  messageType: "COMMAND_LONG",
+  command: 400,  // MAV_CMD_COMPONENT_ARM_DISARM
+  param1: 1,     // 1=arm, 0=disarm
+  param2: 0
 };
 return msg;
 ```
+```
+[Function] → [mavlink-msg: None] → comms → drone
+```
+
+#### 3. Parse Incoming (Auto-detect from comms)
+Automatically parses and passes through telemetry messages:
+```
+[mavlink-comms] → [mavlink-msg] → [Debug GPS data]
+                   ↑ Auto-detects GPS_RAW_INT, SYS_STATUS, etc.
+```
+
+**Features:**
+- Dynamic form generation based on message fields
+- Enum fields show as dropdowns with descriptions
+- Support for all MAVLink field types (int, float, arrays, strings)
+- Works with any dialect (common, ardupilotmega, etc.)
 
 ## Installation
 
@@ -150,11 +159,21 @@ XMLs are stored in `~/.node-red/mavlink-xmls/`:
 - `common_20250101.xml` - Versioned copy
 - Delete old versions via "Manage XMLs" button
 
-## Limitations
+## Supported Dialects
 
-Currently, the message encoder only supports messages from the `common` dialect due to node-mavlink's static registry. Messages from other dialects can be parsed (received) but not yet encoded (sent).
+All dialects are fully supported for both sending and receiving:
 
-**Workaround**: Use `common` dialect or contribute to add dynamic registry loading.
+- **minimal** - Minimal MAVLink message set
+- **common** - Standard MAVLink messages (COMMAND_LONG, SET_MODE, etc.)
+- **ardupilotmega** - ArduPilot-specific messages (gimbal, camera, fence, rally points)
+- **uavionix** - uAvionix ADS-B messages
+- **icarous** - NASA ICAROUS messages
+- **asluav** - ASLUAV fixed-wing UAV messages
+- **development** - Development/experimental messages
+- **ualberta** - University of Alberta messages
+- **storm32** - STorM32 gimbal controller messages
+
+Simply select your dialect in the node configuration - both parsing (receiving) and encoding (sending) will use the correct message definitions automatically.
 
 ## Dependencies
 
