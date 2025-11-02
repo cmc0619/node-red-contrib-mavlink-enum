@@ -1,6 +1,8 @@
-# node-red-contrib-mavlink
+# node-red-contrib-mavlink-aigen
 
 A comprehensive Node-RED MAVLink driver with dynamic dialect support, serial/UDP/TCP communication, and intelligent message building.
+
+> **🤖 100% AI-Generated**: This entire package—code, documentation, and 15 example flows—was created entirely by Claude AI. 
 
 ## Features
 
@@ -101,16 +103,16 @@ Automatically parses and passes through telemetry messages:
 
 ```bash
 cd ~/.node-red
-git clone https://github.com/your-username/node-red-contrib-mavlink.git
-npm install ./node-red-contrib-mavlink
+npm install node-red-contrib-mavlink-aigen
 node-red-restart
 ```
 
-### From npm (when published)
+### From Source
 
 ```bash
 cd ~/.node-red
-npm install node-red-contrib-mavlink
+git clone https://github.com/cmc0619/node-red-contrib-mavlink-aigen.git
+npm install ./node-red-contrib-mavlink-aigen
 node-red-restart
 ```
 
@@ -194,6 +196,6 @@ Pull requests welcome! Please ensure:
 
 ## Support
 
-- Issues: https://github.com/your-username/node-red-contrib-mavlink/issues
+- Issues: https://github.com/cmc0619/node-red-contrib-mavlink-aigen/issues
 - MAVLink Protocol: https://mavlink.io/
 - ArduPilot: https://ardupilot.org/
