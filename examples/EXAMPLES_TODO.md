@@ -95,7 +95,7 @@ Check out:
 
 **All examples require:**
 - Node-RED installed
-- This package (node-red-contrib-mavlink-enum)
+- This package (node-red-contrib-mavlink-aigen)
 - A configured mavlink-comms node
 
 **Dashboard examples also require:**

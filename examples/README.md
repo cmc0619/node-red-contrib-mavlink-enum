@@ -44,7 +44,7 @@ Full-featured ground control station in a single flow.
 ## 🔧 Requirements
 
 Most examples require:
-- ✅ `node-red-contrib-mavlink` (this package)
+- ✅ `node-red-contrib-mavlink-aigen` (this package)
 - ✅ A mavlink-comms node configured and connected
 
 Dashboard examples additionally require:
