@@ -348,7 +348,7 @@ module.exports = function(RED) {
         // Get pending outgoing message from context
         const outgoing = node.context().flow.get("mavlink_outgoing");
 
-        if (outgoing) {
+        if (outgoing && Array.isArray(outgoing.bytes)) {
           // Send the message
           if (connection) {
             if (node.connectionType === "serial") {
@@ -489,6 +489,11 @@ module.exports = function(RED) {
       parser = null;
 
       if (connection) {
+        // Remove event listeners before closing
+        if (connection.removeAllListeners) {
+          connection.removeAllListeners();
+        }
+
         if (node.connectionType === "serial") {
           // Check if connection has close method before checking isOpen
           if (typeof connection.close === "function") {

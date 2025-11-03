@@ -69,12 +69,12 @@ module.exports = function(RED) {
       });
     }
 
-    const result = { enums, messages };
+    const defs = { enums, messages };
 
     // Store in cache
-    definitionsCache[cacheKey] = result;
+    definitionsCache[cacheKey] = defs;
 
-    return result;
+    return defs;
   }
 
   // Admin endpoints
