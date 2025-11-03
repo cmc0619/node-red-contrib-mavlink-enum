@@ -348,7 +348,7 @@ module.exports = function(RED) {
         // Get pending outgoing message from context
         const outgoing = node.context().flow.get("mavlink_outgoing");
 
-        if (outgoing) {
+        if (outgoing && Array.isArray(outgoing.bytes)) {
           // Send the message
           if (connection) {
             if (node.connectionType === "serial") {
