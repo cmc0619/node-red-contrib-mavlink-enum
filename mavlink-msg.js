@@ -10,13 +10,12 @@ module.exports = function(RED) {
 
   // Parse XML to get message and enum definitions (with caching)
   async function parseXMLDefinitions(xmlPath) {
-    const xml = await fs.promises.readFile(xmlPath, "utf8");
     // Check cache first
     const cacheKey = path.basename(xmlPath);
     if (definitionsCache[cacheKey]) {
       return definitionsCache[cacheKey];
     }
-    const xml = fs.readFileSync(xmlPath, "utf8");
+    const xml = await fs.promises.readFile(xmlPath, "utf8");
     const parser = new xml2js.Parser();
     const result = await parser.parseStringPromise(xml);
 
@@ -44,7 +43,7 @@ module.exports = function(RED) {
 
           return {
             name: entry.$.name,
-            value: parseInt(entry.$.value || "0", 10),
+            value: entry.$.value || "0",  // Keep as string to preserve hex/bitshift expressions
             description: entry.description?.[0] || "",
             params: params.length > 0 ? params : null  // Only include if params exist
           };
