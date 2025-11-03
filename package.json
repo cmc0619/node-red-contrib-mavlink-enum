@@ -1,6 +1,6 @@
 {
   "name": "node-red-contrib-mavlink-aigen",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Complete Node-RED MAVLink driver with 15 example flows. 100% AI-generated, UNTESTED on real hardware - testers needed! Supports all 9 dialects, dynamic params, serial/UDP/TCP.",
   "keywords": ["node-red", "mavlink", "drones", "uav", "ardupilot", "gcs", "ground-control", "telemetry", "ai-generated"],
   "author": "AI-Generated via Claude",
