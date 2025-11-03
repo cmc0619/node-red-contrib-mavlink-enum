@@ -2,6 +2,7 @@ module.exports = function(RED) {
   const fs = require("fs");
   const path = require("path");
   const xml2js = require("xml2js");
+  const { Readable } = require("stream");
 
   const XML_DIR = path.join(RED.settings.userDir, "mavlink-xmls");
 
@@ -123,20 +124,45 @@ module.exports = function(RED) {
   });
 
   // Load node-mavlink and build registry map once at module level
-  const mavlinkMappings = require("node-mavlink");
-  const { minimal, common, ardupilotmega, uavionix, icarous, asluav, development, ualberta, storm32 } = mavlinkMappings;
+  const mavlinkModule = require("node-mavlink");
+  const {
+    minimal,
+    common,
+    ardupilotmega,
+    uavionix,
+    icarous,
+    asluav,
+    development,
+    ualberta,
+    storm32,
+    createMavLinkStream,
+  } = mavlinkModule;
+
+  function mergeRegistries(...registries) {
+    return registries
+      .filter(Boolean)
+      .reduce((acc, registry) => Object.assign(acc, registry), {});
+  }
 
   const dialectRegistries = {
-    'minimal': minimal.REGISTRY,
-    'common': common.REGISTRY,
-    'ardupilotmega': ardupilotmega.REGISTRY,
-    'uavionix': uavionix.REGISTRY,
-    'icarous': icarous.REGISTRY,
-    'asluav': asluav.REGISTRY || asluav.ASLUAV?.REGISTRY,
-    'development': development.REGISTRY,
-    'ualberta': ualberta.REGISTRY,
-    'storm32': storm32.REGISTRY,
+    minimal: mergeRegistries(minimal.REGISTRY),
+    common: mergeRegistries(minimal.REGISTRY, common.REGISTRY),
+    ardupilotmega: mergeRegistries(minimal.REGISTRY, common.REGISTRY, ardupilotmega.REGISTRY),
+    uavionix: mergeRegistries(minimal.REGISTRY, common.REGISTRY, uavionix.REGISTRY),
+    icarous: mergeRegistries(minimal.REGISTRY, common.REGISTRY, icarous.REGISTRY),
+    asluav: mergeRegistries(
+      minimal.REGISTRY,
+      common.REGISTRY,
+      asluav.REGISTRY || (asluav.ASLUAV ? asluav.ASLUAV.REGISTRY : null)
+    ),
+    development: mergeRegistries(minimal.REGISTRY, common.REGISTRY, development.REGISTRY),
+    ualberta: mergeRegistries(minimal.REGISTRY, common.REGISTRY, ualberta.REGISTRY),
+    storm32: mergeRegistries(minimal.REGISTRY, common.REGISTRY, storm32.REGISTRY),
   };
+
+  function getRegistry(dialect) {
+    return dialectRegistries[dialect] || dialectRegistries.common;
+  }
 
   function MavlinkMsgNode(config) {
     RED.nodes.createNode(this, config);
@@ -148,8 +174,138 @@ module.exports = function(RED) {
     node.systemId = parseInt(config.systemId || "1", 10);
     node.componentId = parseInt(config.componentId || "1", 10);
 
+    function normalizeBuffer(payload) {
+      if (Buffer.isBuffer(payload)) {
+        return payload;
+      }
+
+      if (
+        payload &&
+        typeof payload === "object" &&
+        payload.type === "Buffer" &&
+        Array.isArray(payload.data)
+      ) {
+        return Buffer.from(payload.data);
+      }
+
+      return null;
+    }
+
+    function decodePacketsFromBuffer(buffer) {
+      if (!buffer || buffer.length === 0) {
+        return Promise.resolve([]);
+      }
+
+      return new Promise((resolve, reject) => {
+        const packets = [];
+        let settled = false;
+
+        const finish = () => {
+          if (!settled) {
+            settled = true;
+            resolve(packets);
+          }
+        };
+
+        const fail = (err) => {
+          if (!settled) {
+            settled = true;
+            reject(err);
+          }
+        };
+
+        const input = Readable.from([buffer]);
+        const stream = createMavLinkStream(input, (crcErr) => {
+          if (crcErr) {
+            const message = typeof crcErr === "string" ? crcErr : crcErr.message;
+            node.warn(`MAVLink CRC error: ${message}`);
+          }
+        });
+
+        stream.on("data", (packet) => packets.push(packet));
+        stream.on("error", fail);
+        stream.on("end", finish);
+        stream.on("close", finish);
+      });
+    }
+
+    async function handleRawPayload(buffer, meta, send) {
+      try {
+        const packets = await decodePacketsFromBuffer(buffer);
+        if (!packets.length) {
+          return false;
+        }
+
+        const registry = getRegistry(node.dialect);
+        let emitted = false;
+
+        packets.forEach((packet) => {
+          const messageClass = registry[packet.header.msgid];
+          if (!messageClass) {
+            node.debug(`Unhandled MAVLink message id ${packet.header.msgid} for dialect ${node.dialect}`);
+            return;
+          }
+
+          try {
+            const message = packet.protocol.data(packet.payload, messageClass);
+            const topic = messageClass.MSG_NAME || `MSG_${packet.header.msgid}`;
+            const headerInfo = {
+              systemId: packet.header.sysid,
+              componentId: packet.header.compid,
+              sequence: packet.header.seq,
+              messageId: packet.header.msgid,
+              timestamp: packet.header.timestamp,
+              protocol: packet.protocol.constructor.NAME || "unknown",
+            };
+
+            node.context().flow.set("mavlink_last_parsed", {
+              name: topic,
+              id: packet.header.msgid,
+              systemId: headerInfo.systemId,
+              componentId: headerInfo.componentId,
+              payload: message,
+              header: headerInfo,
+            });
+
+            send({
+              payload: message,
+              topic,
+              header: headerInfo,
+              meta,
+              raw: buffer,
+            });
+
+            node.status({ fill: "blue", shape: "dot", text: `parsed: ${topic}` });
+            emitted = true;
+          } catch (err) {
+            node.warn(`Failed to decode MAVLink payload: ${err.message}`);
+          }
+        });
+
+        if (!emitted) {
+          node.debug("No matching MAVLink message definitions for decoded packets");
+        }
+
+        return emitted;
+      } catch (err) {
+        node.warn(`Failed to parse MAVLink frame: ${err.message}`);
+        return false;
+      }
+    }
+
     node.on("input", async (msg, send, done) => {
       try {
+        const rawBuffer = normalizeBuffer(msg.payload);
+        if (rawBuffer && (msg.topic === "RAW" || msg.mavlinkRaw === true)) {
+          const meta = msg.meta || {};
+          const parsed = await handleRawPayload(rawBuffer, meta, send);
+          if (!parsed) {
+            node.status({ fill: "grey", shape: "ring", text: "no packets" });
+          }
+          done();
+          return;
+        }
+
         // Detect mode
         const isParseMode = msg.topic && typeof msg.topic === "string" && msg.topic.match(/^[A-Z_]+$/);
         const isDynamicMode = !isParseMode && msg.payload && typeof msg.payload.messageType === "string";
@@ -244,8 +400,7 @@ module.exports = function(RED) {
           }
         });
 
-        // Use cached dialect registry (loaded at module level)
-        const registry = dialectRegistries[node.dialect] || common.REGISTRY;
+        const registry = getRegistry(node.dialect);
 
         // Find message class in registry
         const messageClass = registry[msgDef.id];
@@ -255,36 +410,36 @@ module.exports = function(RED) {
           throw new Error(`Message ${messageType} (id=${msgDef.id}) not found in ${node.dialect} registry. Supported dialects: ${supportedDialects}`);
         }
 
-        // Create message instance
-        const message = new messageClass(
-          node.systemId,
-          node.componentId
-        );
+        const message = new messageClass();
 
-        // Set fields
-        Object.keys(payload).forEach(key => {
-          if (message[key] !== undefined) {
-            message[key] = payload[key];
-          }
-        });
+        if (Array.isArray(messageClass.FIELDS)) {
+          messageClass.FIELDS.forEach(field => {
+            const sourceName = field.source;
+            if (Object.prototype.hasOwnProperty.call(payload, sourceName)) {
+              message[field.name] = payload[sourceName];
+            }
+          });
+        }
 
-        // Serialize to bytes
-        const bytes = message.serialize();
-
-        // Publish to internal bus for mavlink-comms to send
         node.context().flow.set("mavlink_outgoing", {
           message: messageType,
+          messageId: msgDef.id,
           payload,
-          bytes: Array.from(bytes)
+          dialect: node.dialect,
+          systemId: node.systemId,
+          componentId: node.componentId,
+          timestamp: Date.now(),
         });
 
         // Also output the message data for debugging/logging
         send({
           payload: {
             message: messageType,
+            messageId: msgDef.id,
             fields: payload,
             systemId: node.systemId,
-            componentId: node.componentId
+            componentId: node.componentId,
+            mavlink: message
           },
           topic: "mavlink_outgoing"
         });
