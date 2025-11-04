@@ -5,7 +5,6 @@ module.exports = function(RED) {
   const { SerialPort } = require("serialport");
   const dgram = require("dgram");
   const net = require("net");
-  const { execSync } = require("child_process");
   const xml2js = require("xml2js");
   const mavlinkLib = require("node-mavlink");
   const {
@@ -55,13 +54,11 @@ module.exports = function(RED) {
     return registryCache[dialect];
   }
 
-  // Global storage for XML definitions and generated classes
+  // Global storage for XML definitions
   const XML_DIR = path.join(RED.settings.userDir, "mavlink-xmls");
-  const GENERATED_DIR = path.join(RED.settings.userDir, "mavlink-generated");
 
-  // Ensure directories exist
+  // Ensure directory exists
   if (!fs.existsSync(XML_DIR)) fs.mkdirSync(XML_DIR, { recursive: true });
-  if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
 
   // Auto-download XMLs on first run (if directory is empty)
   const xmlFiles = fs.readdirSync(XML_DIR).filter(f => f.endsWith('.xml'));
@@ -216,29 +213,6 @@ module.exports = function(RED) {
     return { enums, messages };
   }
 
-  // Generate TypeScript definitions using mavgen
-  function generateDefinitions(xmlPath, outputDir) {
-    try {
-      // Check if node-mavlink's mavgen is available
-      const mavgenPath = path.join(__dirname, "node_modules", "node-mavlink", "cli.js");
-
-      if (!fs.existsSync(mavgenPath)) {
-        // Try global node-mavlink
-        execSync(`npx mavgen --lang=TypeScript --output=${outputDir} ${xmlPath}`, {
-          stdio: "inherit",
-          cwd: __dirname
-        });
-      } else {
-        execSync(`node ${mavgenPath} generate --lang=TypeScript --output=${outputDir} ${xmlPath}`, {
-          stdio: "inherit"
-        });
-      }
-
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
-  }
 
   // Admin endpoints
   RED.httpAdmin.get("/mavlink-comms/dialects", async (req, res) => {
