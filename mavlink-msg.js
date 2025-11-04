@@ -165,21 +165,27 @@ module.exports = function(RED) {
     node.on("input", async (msg, send, done) => {
       try {
         // Detect mode
-        const payloadIsObject = msg.payload && typeof msg.payload === "object";
-        const hasMessageType = payloadIsObject && typeof msg.payload.messageType === "string";
+        const payloadIsObject = msg.payload && typeof msg.payload === "object" && !Buffer.isBuffer(msg.payload);
+        const hasMessageType = payloadIsObject && typeof msg.payload.messageType === "string" && msg.payload.messageType.trim() !== "";
+        const payloadMessageId = payloadIsObject ? msg.payload.messageId : undefined;
+        const hasMessageId = (payloadMessageId != null && payloadMessageId !== "") || (msg.messageId != null && msg.messageId !== "");
         const hasMavlinkHeader = msg.header && typeof msg.header === "object" && Number.isInteger(msg.header.messageId);
-        const topicLooksLikeMavlink = typeof msg.topic === "string" && /^[A-Z0-9_]+$/.test(msg.topic);
+        const hasMavlinkPayload = msg.mavlink && typeof msg.mavlink === "object" && Number.isInteger(msg.mavlink.messageId || msg.mavlink?.header?.msgid);
+        const topicLooksLikeMavlink = typeof msg.topic === "string" && /^[A-Z0-9_]+$/i.test(msg.topic.trim());
 
-        const isParseMode = !hasMessageType && (hasMavlinkHeader || (topicLooksLikeMavlink && payloadIsObject && !("messageType" in msg.payload)));
-        const isDynamicMode = !isParseMode && hasMessageType;
-        const isStaticMode = !isParseMode && !isDynamicMode && node.messageType;
+        const messageTypeFromPayload = hasMessageType ? msg.payload.messageType.trim().toUpperCase() : null;
+        const messageTypeFromTopic = !hasMavlinkHeader && topicLooksLikeMavlink ? msg.topic.trim().toUpperCase() : null;
+
+        const isParseMode = hasMavlinkHeader || hasMavlinkPayload;
+        const isDynamicMode = !isParseMode && Boolean(messageTypeFromPayload);
+        const isTopicMode = !isParseMode && !isDynamicMode && Boolean(messageTypeFromTopic);
+        const isStaticMode = !isParseMode && !isDynamicMode && !isTopicMode && node.messageType;
 
         // MODE 1: Parse incoming MAVLink message from comms
         if (isParseMode) {
           // Just pass through the parsed data, maybe add formatting later
           send({
-            payload: msg.payload,
-            topic: msg.topic,
+            ...msg,
             mavlink: msg.mavlink || msg.payload
           });
           node.status({ fill: "blue", shape: "dot", text: `parsed: ${msg.topic}` });
@@ -190,11 +196,26 @@ module.exports = function(RED) {
         // For send modes, determine message type
         let messageType;
         let fieldValues = {};
+        const parseInteger = value => {
+          if (value === undefined || value === null || value === "") {
+            return null;
+          }
+          const parsed = parseInt(value, 10);
+          return Number.isNaN(parsed) ? null : parsed;
+        };
 
         if (isDynamicMode) {
           // MODE 2: Dynamic send from msg.payload
-          messageType = msg.payload.messageType;
-          fieldValues = msg.payload;
+          messageType = messageTypeFromPayload;
+          fieldValues = { ...msg.payload };
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageType")) delete fieldValues.messageType;
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageId")) delete fieldValues.messageId;
+        } else if (isTopicMode) {
+          // MODE 3: Dynamic send using msg.topic as the message name
+          messageType = messageTypeFromTopic;
+          fieldValues = payloadIsObject ? { ...msg.payload } : {};
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageType")) delete fieldValues.messageType;
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageId")) delete fieldValues.messageId;
         } else if (isStaticMode) {
           // MODE 3: Static send from config
           messageType = node.messageType;
@@ -204,8 +225,28 @@ module.exports = function(RED) {
           if (msg.payload && typeof msg.payload === "object") {
             Object.assign(fieldValues, msg.payload);
           }
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageType")) delete fieldValues.messageType;
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageId")) delete fieldValues.messageId;
         } else {
           throw new Error("No message type configured or provided");
+        }
+
+        let systemId = parseInteger(msg.systemId);
+        if (systemId === null && Object.prototype.hasOwnProperty.call(fieldValues, "systemId")) {
+          systemId = parseInteger(fieldValues.systemId);
+          delete fieldValues.systemId;
+        }
+        if (systemId === null) {
+          systemId = node.systemId;
+        }
+
+        let componentId = parseInteger(msg.componentId);
+        if (componentId === null && Object.prototype.hasOwnProperty.call(fieldValues, "componentId")) {
+          componentId = parseInteger(fieldValues.componentId);
+          delete fieldValues.componentId;
+        }
+        if (componentId === null) {
+          componentId = node.componentId;
         }
 
         // Load message definition
@@ -215,7 +256,22 @@ module.exports = function(RED) {
         }
 
         const { messages, enums } = await parseXMLDefinitions(xmlPath);
-        const msgDef = messages[messageType];
+        let msgDef = messages[messageType];
+
+        if (!msgDef && hasMessageId) {
+          const candidates = [payloadMessageId, msg.messageId].filter(v => v !== undefined && v !== null && v !== "");
+          for (const candidate of candidates) {
+            const targetId = parseInt(candidate, 10);
+            if (!Number.isNaN(targetId)) {
+              const found = Object.values(messages).find(def => def.id === targetId);
+              if (found) {
+                msgDef = found;
+                messageType = found.name;
+                break;
+              }
+            }
+          }
+        }
 
         if (!msgDef) {
           throw new Error(`Message type not found: ${messageType}`);
@@ -289,8 +345,8 @@ module.exports = function(RED) {
           messageId: msgDef.id,
           payload,
           dialect: node.dialect,
-          systemId: node.systemId,
-          componentId: node.componentId,
+          systemId,
+          componentId,
           timestamp: Date.now(),
         });
 
@@ -300,8 +356,8 @@ module.exports = function(RED) {
             message: messageType,
             messageId: msgDef.id,
             fields: payload,
-            systemId: node.systemId,
-            componentId: node.componentId,
+            systemId,
+            componentId,
             mavlink: message
           },
           topic: "mavlink_outgoing"
