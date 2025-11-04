@@ -148,7 +148,8 @@ module.exports = function(RED) {
     storm32: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY, storm32.REGISTRY),
   };
 
-  const registryCache = {};
+  // Use Object.create(null) to prevent prototype pollution
+  const registryCache = Object.create(null);
   function getRegistry(dialect) {
     if (!registryCache[dialect]) {
       const builder = DIALECT_REGISTRY_BUILDERS[dialect] || DIALECT_REGISTRY_BUILDERS.common;
