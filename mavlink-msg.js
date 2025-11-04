@@ -164,7 +164,15 @@ module.exports = function(RED) {
 
     node.on("input", async (msg, send, done) => {
       try {
-        // Detect mode
+        // Detect mode.  The previous implementation treated any string payload (or
+        // `msg.topic`) that looked like a message name as an instruction to send
+        // a packet.  That worked for simple flows but broke once we started
+        // piping parsed telemetry back through the node – message names that
+        // contain digits (e.g. `RC_CHANNELS_RAW`) or `msg.payload` objects with
+        // MAVLink headers would be mis-read as outbound requests.  The revised
+        // ordering leans on the parser metadata first and only falls back to the
+        // dynamic/topic/static send modes when we are sure the message did not
+        // originate from the comms node.
         const payloadIsObject = msg.payload && typeof msg.payload === "object" && !Buffer.isBuffer(msg.payload);
         const hasMessageType = payloadIsObject && typeof msg.payload.messageType === "string" && msg.payload.messageType.trim() !== "";
         const payloadMessageId = payloadIsObject ? msg.payload.messageId : undefined;
