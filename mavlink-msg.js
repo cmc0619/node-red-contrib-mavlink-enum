@@ -165,8 +165,13 @@ module.exports = function(RED) {
     node.on("input", async (msg, send, done) => {
       try {
         // Detect mode
-        const isParseMode = msg.topic && typeof msg.topic === "string" && msg.topic.match(/^[A-Z_]+$/);
-        const isDynamicMode = !isParseMode && msg.payload && typeof msg.payload.messageType === "string";
+        const payloadIsObject = msg.payload && typeof msg.payload === "object";
+        const hasMessageType = payloadIsObject && typeof msg.payload.messageType === "string";
+        const hasMavlinkHeader = msg.header && typeof msg.header === "object" && Number.isInteger(msg.header.messageId);
+        const topicLooksLikeMavlink = typeof msg.topic === "string" && /^[A-Z0-9_]+$/.test(msg.topic);
+
+        const isParseMode = !hasMessageType && (hasMavlinkHeader || (topicLooksLikeMavlink && payloadIsObject && !("messageType" in msg.payload)));
+        const isDynamicMode = !isParseMode && hasMessageType;
         const isStaticMode = !isParseMode && !isDynamicMode && node.messageType;
 
         // MODE 1: Parse incoming MAVLink message from comms
