@@ -447,6 +447,12 @@ module.exports = function(RED) {
     // Process all pending outgoing messages from queue
     function processOutgoingQueue() {
       try {
+        // Don't process queue if connection isn't ready yet
+        // Messages will be preserved and processed when connection establishes
+        if (!connection) {
+          return;
+        }
+
         const queue = node.context().flow.get("mavlink_outgoing_queue") || [];
 
         while (queue.length > 0) {
