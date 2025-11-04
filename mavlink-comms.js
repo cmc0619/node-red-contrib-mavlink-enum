@@ -302,6 +302,7 @@ module.exports = function(RED) {
     node.baudRate = config.baudRate || 115200;
     node.dialect = config.dialect || "common";
     node.mavlinkVersion = config.mavlinkVersion || "2.0";
+    node.filterHeartbeat = config.filterHeartbeat || false;
 
     let connection = null;
     let heartbeatTimer = null;
@@ -420,6 +421,12 @@ module.exports = function(RED) {
               payload: message,
               header: headerInfo,
             });
+
+            // Filter HEARTBEAT messages if configured
+            if (node.filterHeartbeat && packet.header.msgid === 0) {
+              // Still store in context, just don't output to flow
+              return;
+            }
 
             node.send({
               payload: message,

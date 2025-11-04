@@ -56,6 +56,12 @@
   </div>
 
   <div class="form-row">
+    <label for="node-input-filterHeartbeat"><i class="fa fa-filter"></i> Filter Heartbeat</label>
+    <input type="checkbox" id="node-input-filterHeartbeat" style="display:inline-block; width:auto; vertical-align:baseline;">
+    <span style="margin-left:10px;">Don't output HEARTBEAT messages to flow</span>
+  </div>
+
+  <div class="form-row">
     <label>&nbsp;</label>
     <button type="button" id="node-btn-manage" class="red-ui-button">
       <i class="fa fa-folder-open"></i> Manage XMLs
@@ -70,8 +76,9 @@
   <ul>
     <li>Downloads MAVLink XML definitions from ArduPilot repository</li>
     <li>Supports UDP, TCP, and Serial connections</li>
-    <li>Automatically sends heartbeat messages</li>
+    <li>Automatically sends heartbeat messages to vehicle</li>
     <li>Parses incoming MAVLink messages and outputs as JSON</li>
+    <li>Optional heartbeat filtering to reduce flow clutter</li>
     <li>Listens for outgoing messages from mavlink-msg nodes (no wired connection needed)</li>
   </ul>
 
@@ -125,7 +132,8 @@
         serialPort: { value: "" },
         baudRate: { value: 115200 },
         dialect: { value: "common", required: true },
-        mavlinkVersion: { value: "2.0" }
+        mavlinkVersion: { value: "2.0" },
+        filterHeartbeat: { value: false }
       },
       inputs: 0,
       outputs: 1,
