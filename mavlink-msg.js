@@ -284,7 +284,9 @@ module.exports = function(RED) {
           });
         }
 
-        node.context().flow.set("mavlink_outgoing", {
+        // Push to queue to support multiple msg nodes sending simultaneously
+        const queue = node.context().flow.get("mavlink_outgoing_queue") || [];
+        queue.push({
           message: messageType,
           messageId: msgDef.id,
           payload,
@@ -293,6 +295,7 @@ module.exports = function(RED) {
           componentId: node.componentId,
           timestamp: Date.now(),
         });
+        node.context().flow.set("mavlink_outgoing_queue", queue);
 
         // Also output the message data for debugging/logging
         send({
