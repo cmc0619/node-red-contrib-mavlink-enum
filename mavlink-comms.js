@@ -593,6 +593,9 @@ module.exports = function(RED) {
       // Remove event listener
       RED.events.removeListener("mavlink:outgoing", onOutgoingMessage);
 
+      // Clean up global context to prevent memory leak on redeploy
+      node.context().global.set(`mavlink_defs_${node.id}`, undefined);
+
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
         heartbeatTimer = null;
