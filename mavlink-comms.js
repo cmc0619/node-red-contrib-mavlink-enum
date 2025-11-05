@@ -91,11 +91,24 @@ module.exports = function(RED) {
           return reject(new Error(`HTTP ${res.statusCode}`));
         }
         const file = fs.createWriteStream(outputPath);
-        res.pipe(file);
+
+        // Add error handler to prevent file handle leak
+        file.on("error", (err) => {
+          file.close();
+          reject(err);
+        });
+
         file.on("finish", () => {
           file.close();
           resolve();
         });
+
+        res.on("error", (err) => {
+          file.close();
+          reject(err);
+        });
+
+        res.pipe(file);
       }).on("error", reject);
     });
   }
