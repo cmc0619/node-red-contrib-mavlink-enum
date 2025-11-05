@@ -291,6 +291,17 @@ module.exports = function(RED) {
       return current;
     }
 
+    // Event handler for immediate processing of outgoing messages
+    const onOutgoingMessage = (data) => {
+      // Only process messages for this flow
+      if (data.flowId === node.z) {
+        processOutgoingQueue();
+      }
+    };
+
+    // Listen for outgoing message events (enables instant transmission)
+    RED.events.on("mavlink:outgoing", onOutgoingMessage);
+
     function buildProtocol(sysId, compId) {
       if (node.mavlinkVersion === "2.0") {
         return new MavLinkProtocolV2(sysId, compId);
@@ -433,64 +444,75 @@ module.exports = function(RED) {
       }
     }
 
-    // Send heartbeat and check for outgoing messages
-    function sendHeartbeat() {
+    // Process all pending outgoing messages from queue
+    function processOutgoingQueue() {
       try {
-        // Get pending outgoing message from context
-        const outgoing = node.context().flow.get("mavlink_outgoing");
+        // Don't process queue if connection isn't ready yet
+        // Messages will be preserved and processed when connection establishes
+        if (!connection) {
+          return;
+        }
 
-        if (outgoing && outgoing.messageId !== undefined && outgoing.payload) {
-          try {
-            const targetDialect = outgoing.dialect || node.dialect;
-            const registryForMessage = getRegistryForDialect(targetDialect);
-            const messageClass = registryForMessage[outgoing.messageId];
+        const queue = node.context().flow.get("mavlink_outgoing_queue") || [];
 
-            if (!messageClass) {
-              node.warn(`Outgoing message id ${outgoing.messageId} not found for dialect ${targetDialect}`);
-            } else {
-              const messageInstance = new messageClass();
+        while (queue.length > 0) {
+          const outgoing = queue.shift();
 
-              if (Array.isArray(messageClass.FIELDS)) {
-                messageClass.FIELDS.forEach((field) => {
-                  const sourceName = field.source;
-                  if (Object.prototype.hasOwnProperty.call(outgoing.payload, sourceName)) {
-                    messageInstance[field.name] = outgoing.payload[sourceName];
-                  }
-                });
+          if (outgoing && outgoing.messageId !== undefined && outgoing.payload) {
+            try {
+              const targetDialect = outgoing.dialect || node.dialect;
+              const registryForMessage = getRegistryForDialect(targetDialect);
+              const messageClass = registryForMessage[outgoing.messageId];
+
+              if (!messageClass) {
+                node.warn(`Outgoing message id ${outgoing.messageId} not found for dialect ${targetDialect}`);
+              } else {
+                const messageInstance = new messageClass();
+
+                if (Array.isArray(messageClass.FIELDS)) {
+                  messageClass.FIELDS.forEach((field) => {
+                    const sourceName = field.source;
+                    if (Object.prototype.hasOwnProperty.call(outgoing.payload, sourceName)) {
+                      messageInstance[field.name] = outgoing.payload[sourceName];
+                    }
+                  });
+                }
+
+                const sysId = Number.isInteger(outgoing.systemId) ? outgoing.systemId : 255;
+                const compId = Number.isInteger(outgoing.componentId) ? outgoing.componentId : 190;
+                const protocol = buildProtocol(sysId, compId);
+                const buffer = protocol.serialize(messageInstance, nextSequence());
+                transmitBuffer(buffer, outgoing.host, outgoing.port);
               }
-
-              const sysId = Number.isInteger(outgoing.systemId) ? outgoing.systemId : 255;
-              const compId = Number.isInteger(outgoing.componentId) ? outgoing.componentId : 190;
-              const protocol = buildProtocol(sysId, compId);
-              const buffer = protocol.serialize(messageInstance, nextSequence());
-              transmitBuffer(buffer, outgoing.host, outgoing.port);
+            } catch (sendErr) {
+              node.warn(`Failed to serialize outgoing MAVLink message: ${sendErr.message}`);
             }
-          } catch (sendErr) {
-            node.warn(`Failed to serialize outgoing MAVLink message: ${sendErr.message}`);
-          } finally {
-            node.context().flow.set("mavlink_outgoing", null);
           }
         }
 
-        // Send HEARTBEAT message (MAVLink protocol requirement)
-        try {
-          const heartbeat = new minimal.Heartbeat();
-          heartbeat.type = 6;              // MAV_TYPE_GCS
-          heartbeat.autopilot = 0;         // MAV_AUTOPILOT_GENERIC
-          heartbeat.baseMode = 0;          // No specific mode
-          heartbeat.customMode = 0;        // No custom mode
-          heartbeat.systemStatus = 4;      // MAV_STATE_ACTIVE
-          heartbeat.mavlinkVersion = 3;    // MAVLink v2 indicator
-
-          const heartbeatProtocol = buildProtocol(255, 190);
-          const buffer = heartbeatProtocol.serialize(heartbeat, nextSequence());
-          transmitBuffer(buffer);
-        } catch (hbErr) {
-          node.warn(`HEARTBEAT creation failed: ${hbErr.message}`);
-        }
-
+        // Clear the queue after processing all messages
+        node.context().flow.set("mavlink_outgoing_queue", []);
       } catch (err) {
-        node.warn(`Heartbeat timer error: ${err.message}`);
+        node.warn(`Queue processing error: ${err.message}`);
+      }
+    }
+
+    // Send heartbeat (MAVLink protocol requirement)
+    function sendHeartbeat() {
+      try {
+        const heartbeat = new minimal.Heartbeat();
+        heartbeat.type = 6;              // MAV_TYPE_GCS
+        heartbeat.autopilot = 0;         // MAV_AUTOPILOT_GENERIC
+        heartbeat.baseMode = 0;          // No specific mode
+        heartbeat.customMode = 0;        // No custom mode
+        heartbeat.systemStatus = 4;      // MAV_STATE_ACTIVE
+        heartbeat.mavlinkVersion = 3;    // MAVLink v2 indicator
+
+        const heartbeatProtocol = buildProtocol(255, 190);
+        const buffer = heartbeatProtocol.serialize(heartbeat, nextSequence());
+        transmitBuffer(buffer);
+      } catch (hbErr) {
+        node.warn(`HEARTBEAT creation failed: ${hbErr.message}`);
       }
     }
 
@@ -556,6 +578,10 @@ module.exports = function(RED) {
         // Start heartbeat/outgoing message checker (1Hz)
         heartbeatTimer = setInterval(sendHeartbeat, 1000);
 
+        // Process any messages that were queued before event listener was ready
+        // (handles startup race condition with inject nodes)
+        processOutgoingQueue();
+
       } catch (err) {
         node.error(`Connection failed: ${err.message}`);
         node.status({ fill: "red", shape: "dot", text: "connection error" });
@@ -564,6 +590,9 @@ module.exports = function(RED) {
 
     // Cleanup
     node.on("close", (done) => {
+      // Remove event listener
+      RED.events.removeListener("mavlink:outgoing", onOutgoingMessage);
+
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
         heartbeatTimer = null;
