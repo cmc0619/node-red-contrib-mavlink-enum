@@ -499,6 +499,14 @@ module.exports = function(RED) {
         }
 
         // Push to queue to support multiple msg nodes sending simultaneously
+        // NOTE: Theoretical race condition if flow.get() returns copies:
+        //   Two nodes could get->modify->set concurrently and lose one message
+        // In practice: Node.js is single-threaded so race window is tiny (same tick)
+        // Node-RED context store behavior:
+        //   - If get() returns reference: no race (both modify same array)
+        //   - If get() returns copy: rare race exists but requires perfect timing
+        // Mitigation: Event-driven processing drains queue within ~1-2ms of append
+        // True atomics would require external lock library (redis, etc) - not worth complexity
         const queue = node.context().flow.get("mavlink_outgoing_queue") || [];
         queue.push({
           message: messageType,
