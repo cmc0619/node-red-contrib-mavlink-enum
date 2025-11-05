@@ -13,6 +13,7 @@ module.exports = function(RED) {
     let waypoints = [];
     let currentSeq = 0;
     let timeoutTimer = null;
+    let useIntVariant = false;  // Track if autopilot uses MISSION_REQUEST_INT
 
     function clearStateTimeout() {
       if (timeoutTimer) {
@@ -33,6 +34,7 @@ module.exports = function(RED) {
       state = "IDLE";
       waypoints = [];
       currentSeq = 0;
+      useIntVariant = false;
       clearStateTimeout();
       node.status({});
     }
@@ -40,7 +42,7 @@ module.exports = function(RED) {
     function sendMavlinkMessage(messageType, payload) {
       node.send([{
         payload: {
-          message: messageType,
+          messageType: messageType,  // mavlink-msg expects 'messageType', not 'message'
           ...payload,
           target_system: node.targetSystem,
           target_component: node.targetComponent
@@ -58,7 +60,7 @@ module.exports = function(RED) {
       }]);
     }
 
-    // Convert user-friendly waypoint to MISSION_ITEM format
+    // Convert user-friendly waypoint to MISSION_ITEM format (float lat/lon)
     function waypointToMissionItem(wp, seq, isFirst) {
       // Default values
       const defaults = {
@@ -86,6 +88,41 @@ module.exports = function(RED) {
         y: wp.lon || wp.y || 0,
         z: wp.alt || wp.z || 0,
         mission_type: 0     // MAV_MISSION_TYPE_MISSION
+      };
+    }
+
+    // Convert user-friendly waypoint to MISSION_ITEM_INT format (int32 lat/lon in degE7)
+    function waypointToMissionItemInt(wp, seq, isFirst) {
+      // Default values
+      const defaults = {
+        frame: 3,           // MAV_FRAME_GLOBAL_RELATIVE_ALT
+        command: 16,        // MAV_CMD_NAV_WAYPOINT
+        current: isFirst ? 1 : 0,
+        autocontinue: 1,
+        param1: 0,          // Hold time (seconds)
+        param2: 2,          // Acceptance radius (meters)
+        param3: 0,          // Pass through waypoint
+        param4: NaN,        // Yaw angle (NaN = don't change)
+      };
+
+      // Convert float degrees to int32 degE7 (degrees * 1e7)
+      const lat = wp.lat || wp.x || 0;
+      const lon = wp.lon || wp.y || 0;
+
+      return {
+        seq,
+        frame: wp.frame !== undefined ? wp.frame : defaults.frame,
+        command: wp.command !== undefined ? wp.command : defaults.command,
+        current: defaults.current,
+        autocontinue: wp.autocontinue !== undefined ? wp.autocontinue : defaults.autocontinue,
+        param1: wp.param1 !== undefined ? wp.param1 : defaults.param1,
+        param2: wp.param2 !== undefined ? wp.param2 : defaults.param2,
+        param3: wp.param3 !== undefined ? wp.param3 : defaults.param3,
+        param4: wp.param4 !== undefined ? wp.param4 : defaults.param4,
+        x: Math.round(lat * 1e7),     // int32 in degE7
+        y: Math.round(lon * 1e7),     // int32 in degE7
+        z: wp.alt || wp.z || 0,        // float altitude (meters)
+        mission_type: 0                // MAV_MISSION_TYPE_MISSION
       };
     }
 
@@ -170,9 +207,20 @@ module.exports = function(RED) {
           return;
         }
 
-        // Handle MISSION_REQUEST
-        if (msgName === "MISSION_REQUEST" && state === "WAITING_FOR_REQUEST") {
+        // Handle MISSION_REQUEST or MISSION_REQUEST_INT
+        // Modern autopilots (ArduPilot 4.0+, PX4 1.12+) use INT variant for better precision
+        const isMissionRequest = (msgName === "MISSION_REQUEST" || msgName === "MISSION_REQUEST_INT");
+
+        if (isMissionRequest && state === "WAITING_FOR_REQUEST") {
           const requestedSeq = msgPayload.seq;
+
+          // Track which variant the autopilot is using (for first request)
+          if (currentSeq === 0) {
+            useIntVariant = (msgName === "MISSION_REQUEST_INT");
+            if (useIntVariant) {
+              node.debug("Autopilot using MISSION_REQUEST_INT (modern/high-precision mode)");
+            }
+          }
 
           // Validate sequence number
           if (requestedSeq < 0 || requestedSeq >= waypoints.length) {
@@ -188,11 +236,20 @@ module.exports = function(RED) {
             currentSeq = requestedSeq;
           }
 
-          // Send the requested waypoint
+          // Send the requested waypoint in the appropriate format
           const wp = waypoints[currentSeq];
-          const missionItem = waypointToMissionItem(wp, currentSeq, currentSeq === 0);
+          let missionItem;
+          let messageType;
 
-          sendMavlinkMessage("MISSION_ITEM", missionItem);
+          if (useIntVariant) {
+            missionItem = waypointToMissionItemInt(wp, currentSeq, currentSeq === 0);
+            messageType = "MISSION_ITEM_INT";
+          } else {
+            missionItem = waypointToMissionItem(wp, currentSeq, currentSeq === 0);
+            messageType = "MISSION_ITEM";
+          }
+
+          sendMavlinkMessage(messageType, missionItem);
 
           currentSeq++;
           node.status({
