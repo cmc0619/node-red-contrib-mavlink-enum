@@ -235,8 +235,10 @@ module.exports = function(RED) {
 
   RED.httpAdmin.get("/mavlink-comms/definitions", async (req, res) => {
     try {
-      const dialect = req.query.dialect;
-      const xmlPath = path.join(XML_DIR, `${dialect}.xml`);
+      const xmlPath = path.resolve(XML_DIR, `${req.query.dialect}.xml`);
+      if (!xmlPath.startsWith(path.resolve(XML_DIR) + path.sep)) {
+        return res.status(400).json({ ok: false, error: "Invalid path" });
+      }
 
       if (!fs.existsSync(xmlPath)) {
         return res.status(404).json({ ok: false, error: "Dialect not found" });
@@ -251,8 +253,10 @@ module.exports = function(RED) {
 
   RED.httpAdmin.delete("/mavlink-comms/xml/:filename", (req, res) => {
     try {
-      const filename = req.params.filename;
-      const filepath = path.join(XML_DIR, filename);
+      const filepath = path.resolve(XML_DIR, req.params.filename);
+      if (!filepath.startsWith(path.resolve(XML_DIR) + path.sep)) {
+        return res.status(400).json({ ok: false, error: "Invalid path" });
+      }
 
       if (fs.existsSync(filepath)) {
         fs.unlinkSync(filepath);
