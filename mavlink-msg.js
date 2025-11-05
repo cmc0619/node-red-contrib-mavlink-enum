@@ -322,7 +322,7 @@ module.exports = function(RED) {
           if (trimmed === "") {
             return NaN;
           }
-          if (/^[-+]?\d+(\.\d+)?$/.test(trimmed) || /^0x[0-9a-f]+$/i.test(trimmed)) {
+          if (/^[-+]?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(trimmed) || /^0x[0-9a-f]+$/i.test(trimmed)) {
             return Number(trimmed);
           }
           const shiftMatch = trimmed.match(/^([-+]?\d+)\s*<<\s*([-+]?\d+)$/);
