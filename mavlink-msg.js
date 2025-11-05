@@ -421,6 +421,10 @@ module.exports = function(RED) {
           }
 
           if (typeLower.includes("float") || typeLower.includes("double")) {
+            // Preserve NaN if explicitly provided (e.g., for "don't change" yaw in missions)
+            if (typeof rawValue === "number" && Number.isNaN(rawValue)) {
+              return rawValue;
+            }
             const parsed = parseNumericExpression(rawValue);
             if (!Number.isNaN(parsed)) {
               return parsed;

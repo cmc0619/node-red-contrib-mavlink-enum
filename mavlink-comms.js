@@ -453,7 +453,10 @@ module.exports = function(RED) {
           return;
         }
 
+        // Atomically swap the queue to prevent race conditions
+        // Any messages pushed during processing go into the new empty array
         const queue = node.context().flow.get("mavlink_outgoing_queue") || [];
+        node.context().flow.set("mavlink_outgoing_queue", []);
 
         while (queue.length > 0) {
           const outgoing = queue.shift();
@@ -489,9 +492,6 @@ module.exports = function(RED) {
             }
           }
         }
-
-        // Clear the queue after processing all messages
-        node.context().flow.set("mavlink_outgoing_queue", []);
       } catch (err) {
         node.warn(`Queue processing error: ${err.message}`);
       }
