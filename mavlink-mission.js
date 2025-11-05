@@ -203,7 +203,8 @@ module.exports = function(RED) {
       // Only process MISSION_* messages
       if (msgName && msgName.startsWith("MISSION_") && msgPayload) {
         // Only process messages for our target system
-        if (msgPayload.target_system && msgPayload.target_system !== 255 && msgPayload.target_system !== node.targetSystem) {
+        // node-mavlink uses camelCase for field names (targetSystem, not target_system)
+        if (msgPayload.targetSystem && msgPayload.targetSystem !== 255 && msgPayload.targetSystem !== node.targetSystem) {
           return;
         }
 
