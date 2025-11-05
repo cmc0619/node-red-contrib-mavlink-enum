@@ -41,6 +41,17 @@ Full-featured ground control station in a single flow.
 
 - **full-ground-station.json** - Everything combined into one comprehensive dashboard
 
+### Test Suite (`tests/`)
+Comprehensive automated test flows with simulated drone responses.
+
+- **test-dashboard.json** - 🎯 **START HERE** - Unified control panel for all tests
+- **simulated-drone-test.json** - Mission upload tests with 3 modes (happy, chaos, failure)
+- **telemetry-test.json** - Streaming telemetry validation (10Hz, 6 message types)
+- **command-test.json** - Command protocol testing (ARM, TAKEOFF, LAND, RTL)
+- **parameter-test.json** - Parameter read/write protocol testing
+
+See `tests/README.md` for detailed documentation and usage instructions.
+
 ## 🔧 Requirements
 
 Most examples require:
