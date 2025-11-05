@@ -170,17 +170,46 @@ module.exports = function(RED) {
 
     node.on("input", async (msg, send, done) => {
       try {
-        // Detect mode
-        const isParseMode = msg.topic && typeof msg.topic === "string" && msg.topic.match(/^[A-Z_]+$/);
-        const isDynamicMode = !isParseMode && msg.payload && typeof msg.payload.messageType === "string";
-        const isStaticMode = !isParseMode && !isDynamicMode && node.messageType;
+        // Detect mode.  The previous implementation treated any string payload (or
+        // `msg.topic`) that looked like a message name as an instruction to send
+        // a packet.  That worked for simple flows but broke once we started
+        // piping parsed telemetry back through the node – message names that
+        // contain digits (e.g. ArduPilot's `GPS2_RAW`) or `msg.payload` objects
+        // with MAVLink headers would be mis-read as outbound requests.  The
+        // revised ordering leans on the parser metadata first and only falls back
+        // to the dynamic/topic/static send modes when we are sure the message did
+        // not originate from the comms node.
+        const payloadIsObject = msg.payload && typeof msg.payload === "object" && !Buffer.isBuffer(msg.payload);
+        const hasMessageType = payloadIsObject && typeof msg.payload.messageType === "string" && msg.payload.messageType.trim() !== "";
+        const payloadMessageId = payloadIsObject ? msg.payload.messageId : undefined;
+        const hasMessageId = (payloadMessageId != null && payloadMessageId !== "") || (msg.messageId != null && msg.messageId !== "");
+        const hasMavlinkHeader = msg.header && typeof msg.header === "object" && Number.isInteger(msg.header.messageId);
+        const mavlinkPayloadId = (msg.mavlink && typeof msg.mavlink === "object")
+          ? (msg.mavlink.messageId ?? msg.mavlink?.header?.msgid)
+          : undefined;
+        const normalisedMavlinkPayloadId =
+          typeof mavlinkPayloadId === "string" && mavlinkPayloadId.trim() !== ""
+            ? Number.parseInt(mavlinkPayloadId, 10)
+            : mavlinkPayloadId;
+        const hasMavlinkPayload = Number.isInteger(normalisedMavlinkPayloadId);
+        const topicLooksLikeMavlink = typeof msg.topic === "string" && /^[A-Z0-9_]+$/i.test(msg.topic.trim());
+
+        const messageTypeFromPayload = hasMessageType ? msg.payload.messageType.trim().toUpperCase() : null;
+        const topicCandidate = topicLooksLikeMavlink ? msg.topic.trim().toUpperCase() : null;
+        const messageTypeFromTopic = !hasMavlinkHeader && topicCandidate && topicCandidate !== "MAVLINK_OUTGOING"
+          ? topicCandidate
+          : null;
+
+        const isParseMode = hasMavlinkHeader || hasMavlinkPayload;
+        const isDynamicMode = !isParseMode && Boolean(messageTypeFromPayload);
+        const isTopicMode = !isParseMode && !isDynamicMode && Boolean(messageTypeFromTopic);
+        const isStaticMode = !isParseMode && !isDynamicMode && !isTopicMode && node.messageType;
 
         // MODE 1: Parse incoming MAVLink message from comms
         if (isParseMode) {
           // Just pass through the parsed data, maybe add formatting later
           send({
-            payload: msg.payload,
-            topic: msg.topic,
+            ...msg,
             mavlink: msg.mavlink || msg.payload
           });
           node.status({ fill: "blue", shape: "dot", text: `parsed: ${msg.topic}` });
@@ -191,22 +220,59 @@ module.exports = function(RED) {
         // For send modes, determine message type
         let messageType;
         let fieldValues = {};
+        const parseInteger = value => {
+          if (value === undefined || value === null || value === "") {
+            return null;
+          }
+          const parsed = parseInt(value, 10);
+          return Number.isNaN(parsed) ? null : parsed;
+        };
+
+        const normaliseMessageType = value => (typeof value === "string" ? value.trim().toUpperCase() : "");
 
         if (isDynamicMode) {
           // MODE 2: Dynamic send from msg.payload
-          messageType = msg.payload.messageType;
-          fieldValues = msg.payload;
+          messageType = normaliseMessageType(messageTypeFromPayload);
+          fieldValues = { ...msg.payload };
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageType")) delete fieldValues.messageType;
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageId")) delete fieldValues.messageId;
+        } else if (isTopicMode) {
+          // MODE 3: Dynamic send using msg.topic as the message name
+          messageType = normaliseMessageType(messageTypeFromTopic);
+          fieldValues = payloadIsObject ? { ...msg.payload } : {};
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageType")) delete fieldValues.messageType;
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageId")) delete fieldValues.messageId;
         } else if (isStaticMode) {
           // MODE 3: Static send from config
-          messageType = node.messageType;
+          messageType = normaliseMessageType(node.messageType);
           fieldValues = { ...node.fields };
 
           // Allow override from msg.payload
           if (msg.payload && typeof msg.payload === "object") {
             Object.assign(fieldValues, msg.payload);
           }
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageType")) delete fieldValues.messageType;
+          if (Object.prototype.hasOwnProperty.call(fieldValues, "messageId")) delete fieldValues.messageId;
         } else {
           throw new Error("No message type configured or provided");
+        }
+
+        let systemId = parseInteger(msg.systemId);
+        if (systemId === null && Object.prototype.hasOwnProperty.call(fieldValues, "systemId")) {
+          systemId = parseInteger(fieldValues.systemId);
+          delete fieldValues.systemId;
+        }
+        if (systemId === null) {
+          systemId = node.systemId;
+        }
+
+        let componentId = parseInteger(msg.componentId);
+        if (componentId === null && Object.prototype.hasOwnProperty.call(fieldValues, "componentId")) {
+          componentId = parseInteger(fieldValues.componentId);
+          delete fieldValues.componentId;
+        }
+        if (componentId === null) {
+          componentId = node.componentId;
         }
 
         // Load message definition
@@ -216,7 +282,22 @@ module.exports = function(RED) {
         }
 
         const { messages, enums } = await parseXMLDefinitions(xmlPath);
-        const msgDef = messages[messageType];
+        let msgDef = messages[messageType];
+
+        if (!msgDef && hasMessageId) {
+          const candidates = [payloadMessageId, msg.messageId].filter(v => v !== undefined && v !== null && v !== "");
+          for (const candidate of candidates) {
+            const targetId = parseInt(candidate, 10);
+            if (!Number.isNaN(targetId)) {
+              const found = Object.values(messages).find(def => def.id === targetId);
+              if (found) {
+                msgDef = found;
+                messageType = normaliseMessageType(found.name);
+                break;
+              }
+            }
+          }
+        }
 
         if (!msgDef) {
           throw new Error(`Message type not found: ${messageType}`);
@@ -225,43 +306,175 @@ module.exports = function(RED) {
         // Build message payload with type conversion
         const payload = {};
 
-        msgDef.fields.forEach(field => {
-          let value = fieldValues[field.name];
+        const parseNumericExpression = raw => {
+          if (typeof raw === "number" && Number.isFinite(raw)) {
+            return raw;
+          }
+          if (typeof raw !== "string") {
+            return NaN;
+          }
+          const trimmed = raw.trim();
+          if (trimmed === "") {
+            return NaN;
+          }
+          if (/^[-+]?\d+(\.\d+)?$/.test(trimmed) || /^0x[0-9a-f]+$/i.test(trimmed)) {
+            return Number(trimmed);
+          }
+          const shiftMatch = trimmed.match(/^([-+]?\d+)\s*<<\s*([-+]?\d+)$/);
+          if (shiftMatch) {
+            return Number(shiftMatch[1]) << Number(shiftMatch[2]);
+          }
+          return NaN;
+        };
 
-          // Type conversion
-          if (value !== undefined && value !== null && value !== "") {
-            if (field.type.includes("int") || field.type.includes("uint")) {
-              const parsed = parseInt(value, 10);
-              payload[field.name] = isNaN(parsed) ? 0 : parsed;
-            } else if (field.type === "float" || field.type === "double") {
-              const parsed = parseFloat(value);
-              payload[field.name] = isNaN(parsed) ? 0.0 : parsed;
-            } else if (field.type.includes("char[")) {
-              payload[field.name] = String(value);
-            } else if (field.type.includes("[")) {
-              // Array type
-              if (Array.isArray(value)) {
-                payload[field.name] = value;
-              } else if (typeof value === "string") {
-                payload[field.name] = value.split(",").map(v => v.trim());
-              } else {
-                payload[field.name] = String(value).split(",").map(v => v.trim());
-              }
-            } else {
-              payload[field.name] = value;
+        const enumValueFor = (enumName, raw) => {
+          if (!enumName || !enums[enumName]) {
+            return { matched: false };
+          }
+          const candidates = enums[enumName];
+          const normalised = typeof raw === "string" ? raw.trim() : raw;
+
+          if (typeof normalised === "string" && normalised !== "") {
+            const byName = candidates.find(entry => entry.name === normalised);
+            if (byName) {
+              const numeric = parseNumericExpression(byName.value);
+              return {
+                matched: true,
+                value: Number.isNaN(numeric) ? byName.value : numeric,
+              };
             }
-          } else {
-            // Default values
-            if (field.type.includes("int") || field.type.includes("uint")) {
-              payload[field.name] = 0;
-            } else if (field.type === "float" || field.type === "double") {
-              payload[field.name] = 0.0;
-            } else if (field.type.includes("char[")) {
-              payload[field.name] = "";
-            } else {
-              payload[field.name] = 0;
+
+            const byValue = candidates.find(entry => entry.value === normalised);
+            if (byValue) {
+              const numeric = parseNumericExpression(byValue.value);
+              return {
+                matched: true,
+                value: Number.isNaN(numeric) ? byValue.value : numeric,
+              };
             }
           }
+
+          const numeric = parseNumericExpression(normalised);
+          if (!Number.isNaN(numeric)) {
+            return { matched: true, value: numeric };
+          }
+
+          return { matched: false };
+        };
+
+        const defaultForField = field => {
+          const typeLower = field.type.toLowerCase();
+          const arrayMatch = field.type.match(/^([^[]+)\[(\d+)\]$/);
+          if (arrayMatch) {
+            const baseType = arrayMatch[1].toLowerCase();
+            if (baseType.includes("char")) {
+              return "";
+            }
+            const length = parseInt(arrayMatch[2], 10);
+            const filler = baseType.includes("float") || baseType.includes("double") ? 0.0 : 0;
+            return Array.from({ length }, () => filler);
+          }
+          if (typeLower.includes("float") || typeLower.includes("double")) {
+            return 0.0;
+          }
+          if (typeLower.includes("int") || typeLower.includes("uint") || typeLower === "bool") {
+            return 0;
+          }
+          if (typeLower.includes("char")) {
+            return "";
+          }
+          return 0;
+        };
+
+        const coerceScalar = (field, rawValue) => {
+          if (rawValue === undefined || rawValue === null || rawValue === "") {
+            return defaultForField(field);
+          }
+
+          const enumResult = enumValueFor(field.enum, rawValue);
+          if (enumResult.matched) {
+            return enumResult.value;
+          }
+
+          const typeLower = field.type.toLowerCase();
+          if (typeLower === "bool") {
+            if (typeof rawValue === "boolean") {
+              return rawValue ? 1 : 0;
+            }
+            if (typeof rawValue === "number") {
+              return rawValue ? 1 : 0;
+            }
+            if (typeof rawValue === "string") {
+              const trimmed = rawValue.trim().toLowerCase();
+              if (["true", "1", "yes", "on"].includes(trimmed)) return 1;
+              if (["false", "0", "no", "off"].includes(trimmed)) return 0;
+            }
+            return defaultForField(field);
+          }
+
+          if (typeLower.includes("int") || typeLower.includes("uint")) {
+            const parsed = parseNumericExpression(rawValue);
+            if (!Number.isNaN(parsed)) {
+              return Math.trunc(parsed);
+            }
+            return defaultForField(field);
+          }
+
+          if (typeLower.includes("float") || typeLower.includes("double")) {
+            const parsed = parseNumericExpression(rawValue);
+            if (!Number.isNaN(parsed)) {
+              return parsed;
+            }
+            return defaultForField(field);
+          }
+
+          if (typeLower.includes("char")) {
+            return String(rawValue);
+          }
+
+          return rawValue;
+        };
+
+        const coerceArray = (field, rawValue) => {
+          const arrayMatch = field.type.match(/^([^[]+)\[(\d+)\]$/);
+          if (!arrayMatch) {
+            return coerceScalar(field, rawValue);
+          }
+          const baseType = arrayMatch[1].toLowerCase();
+          const expectedLength = parseInt(arrayMatch[2], 10);
+          if (baseType.includes("char")) {
+            if (rawValue === undefined || rawValue === null) {
+              return "";
+            }
+            return String(rawValue);
+          }
+
+          let values;
+          if (Array.isArray(rawValue)) {
+            values = rawValue;
+          } else if (typeof rawValue === "string") {
+            values = rawValue.split(",").map(v => v.trim()).filter(v => v !== "");
+          } else {
+            values = [rawValue];
+          }
+
+          const coerced = values
+            .slice(0, expectedLength)
+            .map(entry => coerceScalar({ ...field, type: baseType }, entry));
+
+          if (coerced.length < expectedLength) {
+            const fillerField = { ...field, type: baseType };
+            while (coerced.length < expectedLength) {
+              coerced.push(defaultForField(fillerField));
+            }
+          }
+
+          return coerced;
+        };
+
+        msgDef.fields.forEach(field => {
+          const value = fieldValues[field.name];
+          payload[field.name] = coerceArray(field, value);
         });
 
         const registry = getRegistry(node.dialect);
@@ -292,8 +505,8 @@ module.exports = function(RED) {
           messageId: msgDef.id,
           payload,
           dialect: node.dialect,
-          systemId: node.systemId,
-          componentId: node.componentId,
+          systemId,
+          componentId,
           timestamp: Date.now(),
         });
         node.context().flow.set("mavlink_outgoing_queue", queue);
@@ -307,8 +520,8 @@ module.exports = function(RED) {
             message: messageType,
             messageId: msgDef.id,
             fields: payload,
-            systemId: node.systemId,
-            componentId: node.componentId,
+            systemId,
+            componentId,
             mavlink: message
           },
           topic: "mavlink_outgoing"
