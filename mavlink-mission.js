@@ -148,6 +148,14 @@ module.exports = function(RED) {
           return;
         }
 
+        // Validate waypoint objects to prevent crashes from invalid data
+        const invalidIndex = waypoints.findIndex(wp => !wp || typeof wp !== 'object' || Array.isArray(wp));
+        if (invalidIndex !== -1) {
+          node.error(`Invalid waypoint at index ${invalidIndex}: expected object, got ${typeof waypoints[invalidIndex]}`);
+          sendStatus(false, `Invalid waypoint data at index ${invalidIndex}`);
+          return;
+        }
+
         currentSeq = 0;
         state = "WAITING_FOR_REQUEST";
 
