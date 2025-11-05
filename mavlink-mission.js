@@ -109,6 +109,12 @@ module.exports = function(RED) {
       const lat = wp.lat || wp.x || 0;
       const lon = wp.lon || wp.y || 0;
 
+      // Clamp to valid geographic ranges to prevent int32 overflow
+      // Latitude: -90 to +90 degrees → -900000000 to +900000000 degE7
+      // Longitude: -180 to +180 degrees → -1800000000 to +1800000000 degE7
+      const latDegE7 = Math.max(-900000000, Math.min(900000000, Math.round(lat * 1e7)));
+      const lonDegE7 = Math.max(-1800000000, Math.min(1800000000, Math.round(lon * 1e7)));
+
       return {
         seq,
         frame: wp.frame !== undefined ? wp.frame : defaults.frame,
@@ -119,8 +125,8 @@ module.exports = function(RED) {
         param2: wp.param2 !== undefined ? wp.param2 : defaults.param2,
         param3: wp.param3 !== undefined ? wp.param3 : defaults.param3,
         param4: wp.param4 !== undefined ? wp.param4 : defaults.param4,
-        x: Math.round(lat * 1e7),     // int32 in degE7
-        y: Math.round(lon * 1e7),     // int32 in degE7
+        x: latDegE7,     // int32 in degE7 (clamped to valid range)
+        y: lonDegE7,     // int32 in degE7 (clamped to valid range)
         z: wp.alt || wp.z || 0,        // float altitude (meters)
         mission_type: 0                // MAV_MISSION_TYPE_MISSION
       };
