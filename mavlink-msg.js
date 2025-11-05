@@ -132,24 +132,30 @@ module.exports = function(RED) {
       .reduce((acc, registry) => Object.assign(acc, registry), {});
   }
 
-  const dialectRegistries = {
-    minimal: mergeRegistries(minimal.REGISTRY),
-    common: mergeRegistries(minimal.REGISTRY, common.REGISTRY),
-    ardupilotmega: mergeRegistries(minimal.REGISTRY, common.REGISTRY, ardupilotmega.REGISTRY),
-    uavionix: mergeRegistries(minimal.REGISTRY, common.REGISTRY, uavionix.REGISTRY),
-    icarous: mergeRegistries(minimal.REGISTRY, common.REGISTRY, icarous.REGISTRY),
-    asluav: mergeRegistries(
+  const DIALECT_REGISTRY_BUILDERS = {
+    minimal: () => mergeRegistries(minimal.REGISTRY),
+    common: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY),
+    ardupilotmega: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY, ardupilotmega.REGISTRY),
+    uavionix: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY, uavionix.REGISTRY),
+    icarous: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY, icarous.REGISTRY),
+    asluav: () => mergeRegistries(
       minimal.REGISTRY,
       common.REGISTRY,
       asluav.REGISTRY || (asluav.ASLUAV ? asluav.ASLUAV.REGISTRY : null)
     ),
-    development: mergeRegistries(minimal.REGISTRY, common.REGISTRY, development.REGISTRY),
-    ualberta: mergeRegistries(minimal.REGISTRY, common.REGISTRY, ualberta.REGISTRY),
-    storm32: mergeRegistries(minimal.REGISTRY, common.REGISTRY, storm32.REGISTRY),
+    development: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY, development.REGISTRY),
+    ualberta: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY, ualberta.REGISTRY),
+    storm32: () => mergeRegistries(minimal.REGISTRY, common.REGISTRY, storm32.REGISTRY),
   };
 
+  // Use Object.create(null) to prevent prototype pollution
+  const registryCache = Object.create(null);
   function getRegistry(dialect) {
-    return dialectRegistries[dialect] || dialectRegistries.common;
+    if (!registryCache[dialect]) {
+      const builder = DIALECT_REGISTRY_BUILDERS[dialect] || DIALECT_REGISTRY_BUILDERS.common;
+      registryCache[dialect] = builder();
+    }
+    return registryCache[dialect];
   }
 
   function MavlinkMsgNode(config) {
@@ -264,7 +270,7 @@ module.exports = function(RED) {
         const messageClass = registry[msgDef.id];
 
         if (!messageClass) {
-          const supportedDialects = Object.keys(dialectRegistries).join(', ');
+          const supportedDialects = Object.keys(DIALECT_REGISTRY_BUILDERS).join(', ');
           throw new Error(`Message ${messageType} (id=${msgDef.id}) not found in ${node.dialect} registry. Supported dialects: ${supportedDialects}`);
         }
 
