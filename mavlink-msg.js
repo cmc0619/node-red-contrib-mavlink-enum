@@ -81,7 +81,10 @@ module.exports = function(RED) {
   RED.httpAdmin.get("/mavlink-msg/messages", async (req, res) => {
     try {
       const dialect = req.query.dialect || "common";
-      const xmlPath = path.join(XML_DIR, `${dialect}.xml`);
+      const xmlPath = path.resolve(XML_DIR, `${dialect}.xml`);
+      if (!xmlPath.startsWith(path.resolve(XML_DIR) + path.sep)) {
+        return res.status(400).json({ ok: false, error: "Invalid path" });
+      }
 
       if (!fs.existsSync(xmlPath)) {
         return res.status(404).json({ ok: false, error: "Dialect not found" });
@@ -97,7 +100,10 @@ module.exports = function(RED) {
   RED.httpAdmin.get("/mavlink-msg/enums", async (req, res) => {
     try {
       const dialect = req.query.dialect || "common";
-      const xmlPath = path.join(XML_DIR, `${dialect}.xml`);
+      const xmlPath = path.resolve(XML_DIR, `${dialect}.xml`);
+      if (!xmlPath.startsWith(path.resolve(XML_DIR) + path.sep)) {
+        return res.status(400).json({ ok: false, error: "Invalid path" });
+      }
 
       if (!fs.existsSync(xmlPath)) {
         return res.status(404).json({ ok: false, error: "Dialect not found" });
