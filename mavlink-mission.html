@@ -1,0 +1,156 @@
+<script type="text/javascript">
+  RED.nodes.registerType('mavlink-mission', {
+    category: 'MAVLink',
+    color: '#87CEEB',
+    defaults: {
+      name: { value: "" },
+      targetSystem: { value: "1", validate: RED.validators.number() },
+      targetComponent: { value: "1", validate: RED.validators.number() },
+      timeout: { value: "10000", validate: RED.validators.number() }
+    },
+    inputs: 1,
+    outputs: 2,
+    outputLabels: ["MAVLink messages", "Status"],
+    icon: "font-awesome/fa-map-marker",
+    label: function() {
+      return this.name || "mavlink mission";
+    },
+    labelStyle: function() {
+      return this.name ? "node_label_italic" : "";
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="mavlink-mission">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Mission Manager">
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-targetSystem"><i class="fa fa-bullseye"></i> Target System ID</label>
+    <input type="number" id="node-input-targetSystem" placeholder="1" min="1" max="255">
+    <span style="margin-left:10px;">Vehicle system ID (usually 1)</span>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-targetComponent"><i class="fa fa-cube"></i> Target Component ID</label>
+    <input type="number" id="node-input-targetComponent" placeholder="1" min="1" max="255">
+    <span style="margin-left:10px;">Vehicle component ID (usually 1)</span>
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-timeout"><i class="fa fa-clock-o"></i> Timeout (ms)</label>
+    <input type="number" id="node-input-timeout" placeholder="10000" min="1000">
+    <span style="margin-left:10px;">Timeout for mission operations</span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="mavlink-mission">
+  <p>MAVLink mission manager for uploading waypoint missions to vehicles.</p>
+
+  <h3>Inputs</h3>
+  <dl class="message-properties">
+    <dt>Upload Mission
+      <span class="property-type">object</span>
+    </dt>
+    <dd>
+      Send a message with <code>msg.topic = "upload_mission"</code> and waypoints in payload:
+      <pre>{
+  topic: "upload_mission",
+  payload: {
+    waypoints: [
+      { lat: 37.7749, lon: -122.4194, alt: 100 },
+      { lat: 37.7750, lon: -122.4195, alt: 100 },
+      { lat: 37.7751, lon: -122.4196, alt: 50 }
+    ]
+  }
+}</pre>
+    </dd>
+
+    <dt>Clear Mission
+      <span class="property-type">object</span>
+    </dt>
+    <dd>
+      Send a message with <code>msg.topic = "clear_mission"</code> to clear all waypoints from vehicle.
+    </dd>
+
+    <dt>MAVLink Messages
+      <span class="property-type">object</span>
+    </dt>
+    <dd>
+      Connect output from <b>mavlink-comms</b> node to this node's input.
+      Must receive MISSION_REQUEST and MISSION_ACK messages.
+    </dd>
+  </dl>
+
+  <h3>Outputs</h3>
+  <ol class="node-ports">
+    <li>MAVLink Commands
+      <dl class="message-properties">
+        <dt>payload <span class="property-type">object</span></dt>
+        <dd>MAVLink messages to send (connect to <b>mavlink-msg</b> node)</dd>
+      </dl>
+    </li>
+    <li>Status
+      <dl class="message-properties">
+        <dt>payload.success <span class="property-type">boolean</span></dt>
+        <dd>Whether operation succeeded</dd>
+        <dt>payload.message <span class="property-type">string</span></dt>
+        <dd>Status message</dd>
+      </dl>
+    </li>
+  </ol>
+
+  <h3>Waypoint Format</h3>
+  <p>Simple format (lat/lon/alt):</p>
+  <pre>{
+  lat: 37.7749,    // Latitude (degrees)
+  lon: -122.4194,  // Longitude (degrees)
+  alt: 100         // Altitude (meters, relative to home)
+}</pre>
+
+  <p>Advanced format (full control):</p>
+  <pre>{
+  lat: 37.7749,
+  lon: -122.4194,
+  alt: 100,
+  command: 16,       // MAV_CMD_NAV_WAYPOINT
+  frame: 3,          // MAV_FRAME_GLOBAL_RELATIVE_ALT
+  param1: 0,         // Hold time (seconds)
+  param2: 2,         // Acceptance radius (meters)
+  param3: 0,         // Pass through waypoint (0=stop, 1=pass)
+  param4: NaN,       // Yaw angle (NaN=don't change)
+  autocontinue: 1    // 1=continue to next waypoint
+}</pre>
+
+  <h3>Common Commands</h3>
+  <ul>
+    <li><code>command: 16</code> - NAV_WAYPOINT (fly to location)</li>
+    <li><code>command: 21</code> - NAV_LAND (land at location)</li>
+    <li><code>command: 22</code> - NAV_TAKEOFF (takeoff from location)</li>
+    <li><code>command: 20</code> - NAV_RETURN_TO_LAUNCH (RTL)</li>
+    <li><code>command: 17</code> - NAV_LOITER_UNLIM (loiter indefinitely)</li>
+    <li><code>command: 19</code> - NAV_LOITER_TIME (loiter for time)</li>
+  </ul>
+
+  <h3>Example Flow</h3>
+  <pre>[Waypoint Array] → [Mission Manager] → [MAVLink MSG] → [MAVLink COMMS]
+                            ↑                                    ↓
+                            └────────────────────────────────────┘
+                          (MISSION_REQUEST, MISSION_ACK feedback)</pre>
+
+  <h3>Details</h3>
+  <p>
+    This node implements the MAVLink mission upload protocol. It handles the
+    handshake sequence: MISSION_COUNT → MISSION_REQUEST → MISSION_ITEM → MISSION_ACK.
+  </p>
+  <p>
+    The state machine automatically sequences waypoint uploads and provides
+    status feedback. Timeouts ensure operations don't hang indefinitely.
+  </p>
+  <p>
+    <strong>Important:</strong> Connect the output from your <b>mavlink-comms</b>
+    node back to this node's input so it can see MISSION_REQUEST and MISSION_ACK messages.
+  </p>
+</script>

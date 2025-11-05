@@ -33,6 +33,77 @@ If you test this with real hardware, **please open an issue** and let us know ho
 
 ## Nodes
 
+### mavlink-mission
+
+**NEW in v1.2.0** - Automated mission upload/clear with full protocol handling.
+
+The mission manager node handles the complex MAVLink mission upload protocol automatically. Just send waypoint arrays, it handles the rest.
+
+**Features:**
+- Upload waypoint missions with simple `{lat, lon, alt}` format
+- Clear missions from vehicle
+- Auto-detects MISSION_REQUEST vs MISSION_REQUEST_INT (modern autopilots)
+- Full state machine handles MISSION_COUNT → MISSION_REQUEST → MISSION_ITEM sequence
+- Timeout protection (configurable, default 10s)
+- Multi-vehicle support (set target system ID)
+- Status feedback on output 2
+
+**Usage:**
+
+```javascript
+// Simple mission
+msg.topic = "upload_mission";
+msg.payload = {
+  waypoints: [
+    { lat: 37.7749, lon: -122.4194, alt: 100 },
+    { lat: 37.7750, lon: -122.4195, alt: 100 },
+    { lat: 37.7751, lon: -122.4196, alt: 50 }
+  ]
+};
+```
+
+```javascript
+// Advanced mission with commands
+msg.topic = "upload_mission";
+msg.payload = {
+  waypoints: [
+    {
+      lat: 37.7749, lon: -122.4194, alt: 50,
+      command: 22,    // NAV_TAKEOFF
+      param1: 15      // Pitch angle
+    },
+    {
+      lat: 37.7750, lon: -122.4195, alt: 100,
+      command: 16,    // NAV_WAYPOINT (default)
+      param1: 5,      // Hold time (seconds)
+      param2: 10      // Acceptance radius (meters)
+    },
+    {
+      lat: 37.7751, lon: -122.4196, alt: 0,
+      command: 21     // NAV_LAND
+    }
+  ]
+};
+```
+
+**Common Commands:**
+- `16` - NAV_WAYPOINT (fly to location)
+- `22` - NAV_TAKEOFF (takeoff to altitude)
+- `21` - NAV_LAND (land at location)
+- `20` - NAV_RETURN_TO_LAUNCH (RTL)
+- `17` - NAV_LOITER_UNLIM (loiter indefinitely)
+- `19` - NAV_LOITER_TIME (loiter for time in param1)
+
+**Outputs:**
+- **Output 1**: MAVLink commands (connect to `mavlink-msg` node)
+- **Output 2**: Status messages (`{success: true/false, message: "..."}`)
+
+**Critical Wiring:**
+- Mission Manager output 1 → mavlink-msg input
+- mavlink-comms output → Mission Manager input (feedback loop!)
+
+See `examples/advanced/mission-manager-example.json` for complete flow.
+
 ### mavlink-comms
 
 The communication node handles all I/O operations and dialect management.
