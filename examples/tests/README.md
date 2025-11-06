@@ -78,7 +78,7 @@ This test suite validates that Node-RED GCS nodes correctly handle:
 **Purpose**: Validate normal successful operation
 
 **Drone Behavior**:
-- Responds to HEARTBEAT with valid HEARTBEAT
+- Responds to MISSION_REQUEST_LIST with MISSION_COUNT
 - Accepts MISSION_COUNT and requests each waypoint in sequence
 - Sends MISSION_ACK(ACCEPTED) after final waypoint
 
@@ -115,7 +115,7 @@ Click one of the mode inject buttons:
 
 ### 2. Run Test Scenario
 Click a test scenario inject button:
-- **Test: Heartbeat** - Basic connectivity test
+- **Test: Mission List Request** - Basic mission protocol test
 - **Test: Mission Upload** - Full mission protocol with edge cases
 
 ### 3. View Results
@@ -125,10 +125,10 @@ Click a test scenario inject button:
 
 ## Test Scenarios
 
-### Heartbeat Test
-- Sends HEARTBEAT from GCS
-- Expects HEARTBEAT response from drone
-- **Pass**: Response received
+### Mission List Request Test
+- Sends MISSION_REQUEST_LIST from GCS
+- Expects MISSION_COUNT response from drone
+- **Pass**: MISSION_COUNT received with waypoint count
 - **Fail**: No response within 10 seconds
 
 ### Mission Upload Test
@@ -182,12 +182,12 @@ Summary format:
 
 ## Expected Test Matrix
 
-| Test Scenario      | Happy Mode | Chaos Mode | Failure Mode |
-|-------------------|------------|------------|--------------|
-| Heartbeat         | PASS       | PASS       | FAIL*        |
-| Mission Upload    | PASS       | PASS       | PASS**       |
+| Test Scenario        | Happy Mode | Chaos Mode | Failure Mode |
+|---------------------|------------|------------|--------------|
+| Mission List Request| PASS       | PASS       | FAIL*        |
+| Mission Upload      | PASS       | PASS       | PASS**       |
 
-\* Failure mode: Drone doesn't respond to heartbeat
+\* Failure mode: Drone doesn't respond to mission list request
 \*\* Failure mode: Should PASS if GCS correctly handles rejection
 
 ## Troubleshooting
@@ -317,8 +317,7 @@ Validates telemetry message handling with realistic simulated drone streaming co
 
 ### Features
 - **Simulated drone telemetry generator** - Streams at 10Hz with realistic flight motion
-- **Message types tested**:
-  - `HEARTBEAT` - Connection and system status
+- **Message types tested** (5 types):
   - `ATTITUDE` - Roll/pitch/yaw with rates (±15° roll, ±10° pitch)
   - `GLOBAL_POSITION_INT` - GPS lat/lon/alt with movement
   - `VFR_HUD` - Airspeed, groundspeed, heading, throttle, climb
@@ -472,9 +471,9 @@ When you're ready to test with real hardware:
 **Completed:**
 - [x] Add parameter request/set tests (parameter-test.json)
 - [x] Test command (MAV_CMD_*) protocol (command-test.json)
-- [x] Add telemetry stream tests (telemetry-test.json - 6 message types)
+- [x] Add telemetry stream tests (telemetry-test.json - 5 message types)
 - [x] Create dashboard UI for test control (test-dashboard.json)
-- [x] Add mission protocol tests (simulated-drone-test.json - 3 test modes)
+- [x] Add mission protocol tests (simulated-drone-test.json - 3 test modes + mission list request)
 
 **Potential Future Work:**
 - [ ] Export test results to JSON/CSV for CI/CD integration

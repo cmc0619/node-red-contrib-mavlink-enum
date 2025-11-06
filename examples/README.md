@@ -45,8 +45,8 @@ Full-featured ground control station in a single flow.
 Comprehensive automated test flows with simulated drone responses.
 
 - **test-dashboard.json** - 🎯 **START HERE** - Unified control panel for all tests
-- **simulated-drone-test.json** - Mission upload tests with 3 modes (happy, chaos, failure)
-- **telemetry-test.json** - Streaming telemetry validation (10Hz, 6 message types)
+- **simulated-drone-test.json** - Mission upload tests with 3 modes (happy, chaos, failure) + mission list request
+- **telemetry-test.json** - Streaming telemetry validation (10Hz, 5 message types)
 - **command-test.json** - Command protocol testing (ARM, TAKEOFF, LAND, RTL)
 - **parameter-test.json** - Parameter read/write protocol testing
 
