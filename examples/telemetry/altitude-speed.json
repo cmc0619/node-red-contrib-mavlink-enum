@@ -4,7 +4,7 @@
         "type": "tab",
         "label": "MAVLink: Flight Data Gauges",
         "disabled": false,
-        "info": "Real-time altitude, speed, and heading display.\n\nRequires: node-red-dashboard"
+        "info": "Real-time altitude, speed, heading, and battery display.\n\nRequires: node-red-dashboard"
     },
     {
         "id": "filter_vfr_hud",
@@ -35,6 +35,21 @@
         "x": 230,
         "y": 200,
         "wires": [["parse_global_pos"]]
+    },
+    {
+        "id": "filter_sys_status",
+        "type": "switch",
+        "z": "altitude_speed_flow",
+        "name": "Filter SYS_STATUS",
+        "property": "topic",
+        "propertyType": "msg",
+        "rules": [
+            {"t": "eq", "v": "SYS_STATUS", "vt": "str"}
+        ],
+        "outputs": 1,
+        "x": 200,
+        "y": 300,
+        "wires": [["parse_battery"]]
     },
     {
         "id": "parse_vfr_hud",
@@ -70,6 +85,25 @@
         "x": 450,
         "y": 200,
         "wires": [["ui_relative_alt"]]
+    },
+    {
+        "id": "parse_battery",
+        "type": "function",
+        "z": "altitude_speed_flow",
+        "name": "Parse Battery Data",
+        "func": "// SYS_STATUS provides battery information\nconst sys = msg.payload;\n\nif (!sys) return null;\n\n// Extract battery data\nconst batteryPercent = sys.battery_remaining || 0;  // 0-100%\nconst voltage = sys.voltage_battery ? sys.voltage_battery / 1000 : 0;  // mV to V\nconst current = sys.current_battery ? sys.current_battery / 100 : 0;   // cA to A\n\n// Calculate power consumption (W)\nconst power = (voltage * current).toFixed(1);\n\n// Battery health indicator\nlet healthIcon = '🟢';\nlet healthText = 'Good';\nif (batteryPercent < 20) {\n    healthIcon = '🔴';\n    healthText = 'CRITICAL';\n} else if (batteryPercent < 30) {\n    healthIcon = '🟠';\n    healthText = 'Low';\n} else if (batteryPercent < 50) {\n    healthIcon = '🟡';\n    healthText = 'Fair';\n}\n\nreturn [\n    { payload: batteryPercent, topic: 'battery/percent' },\n    { payload: voltage.toFixed(2), topic: 'battery/voltage' },\n    { payload: current.toFixed(2), topic: 'battery/current' },\n    { payload: power, topic: 'battery/power' }\n];",
+        "outputs": 4,
+        "timeout": 0,
+        "noerr": 0,
+        "libs": [],
+        "x": 420,
+        "y": 300,
+        "wires": [
+            ["ui_battery_percent"],
+            ["ui_battery_voltage"],
+            ["ui_battery_current"],
+            ["ui_battery_power"]
+        ]
     },
     {
         "id": "ui_altitude",
@@ -243,11 +277,84 @@
         "wires": [[]]
     },
     {
+        "id": "ui_battery_percent",
+        "type": "ui_gauge",
+        "z": "altitude_speed_flow",
+        "name": "Battery Percentage",
+        "group": "flight_group",
+        "order": 9,
+        "width": 3,
+        "height": 3,
+        "gtype": "gage",
+        "title": "Battery",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": ["#ca3838","#e6e600","#00b500"],
+        "seg1": "20",
+        "seg2": "50",
+        "x": 680,
+        "y": 560,
+        "wires": []
+    },
+    {
+        "id": "ui_battery_voltage",
+        "type": "ui_text",
+        "z": "altitude_speed_flow",
+        "group": "flight_group",
+        "order": 10,
+        "width": 3,
+        "height": 1,
+        "name": "Battery Voltage",
+        "label": "Voltage",
+        "format": "{{msg.payload}} V",
+        "layout": "row-spread",
+        "className": "",
+        "x": 690,
+        "y": 600,
+        "wires": []
+    },
+    {
+        "id": "ui_battery_current",
+        "type": "ui_text",
+        "z": "altitude_speed_flow",
+        "group": "flight_group",
+        "order": 11,
+        "width": 3,
+        "height": 1,
+        "name": "Battery Current",
+        "label": "Current",
+        "format": "{{msg.payload}} A",
+        "layout": "row-spread",
+        "className": "",
+        "x": 680,
+        "y": 640,
+        "wires": []
+    },
+    {
+        "id": "ui_battery_power",
+        "type": "ui_text",
+        "z": "altitude_speed_flow",
+        "group": "flight_group",
+        "order": 12,
+        "width": 3,
+        "height": 1,
+        "name": "Battery Power",
+        "label": "Power",
+        "format": "{{msg.payload}} W",
+        "layout": "row-spread",
+        "className": "",
+        "x": 670,
+        "y": 680,
+        "wires": []
+    },
+    {
         "id": "comment_info",
         "type": "comment",
         "z": "altitude_speed_flow",
-        "name": "Flight Data - Wire mavlink-comms output to BOTH filter nodes",
-        "info": "## Flight Data Gauges Dashboard\n\nComprehensive flight data display with real-time updates.\n\n### Setup:\n1. Wire mavlink-comms output to BOTH filter nodes:\n   - Filter VFR_HUD\n   - Filter GLOBAL_POSITION_INT\n2. Deploy\n3. Open Dashboard: http://localhost:1880/ui\n\n### Flight Data Displayed:\n\n**Altitude MSL** (Mean Sea Level)\n- Absolute altitude above sea level\n- From VFR_HUD message\n- Useful for terrain clearance\n\n**Altitude AGL** (Above Ground Level)\n- Relative altitude from takeoff point\n- From GLOBAL_POSITION_INT message\n- Your actual flight height\n\n**Airspeed**\n- Speed through air (what aircraft feels)\n- Important for fixed-wing aircraft\n- Converted from m/s to km/h\n\n**Groundspeed**\n- Speed over ground (GPS speed)\n- Affected by wind\n- Actual travel speed\n\n**Climb Rate**\n- Vertical speed (up/down)\n- ↑ = Climbing (green)\n- ↓ = Descending (orange)\n- → = Level flight (gray)\n\n**Heading**\n- Compass direction (0-360°)\n- 0° = North, 90° = East, etc.\n- Displayed as compass gauge\n\n**Throttle**\n- Current throttle percentage\n- 0% = idle, 100% = full power\n\n**Altitude History Chart**\n- Last 5 minutes of altitude data\n- Shows climb/descent trends\n- Helps identify altitude hold issues\n\n### Understanding the Data:\n\n**Altitude Difference:**\n- MSL > AGL = You're above sea level\n- Example: MSL=500m, AGL=50m = Takeoff at 450m elevation\n\n**Speed Difference:**\n- Airspeed > Groundspeed = Headwind\n- Airspeed < Groundspeed = Tailwind\n- Airspeed = Groundspeed = No wind\n\n**Climb Rate:**\n- Positive = Climbing\n- Negative = Descending  \n- Zero = Level flight or hovering\n\n### Customization:\n\n**Altitude Gauge Range:**\nEdit `ui_altitude` max value based on your flight ceiling:\n- Multirotor: 100-200m typical\n- Fixed-wing: 500-1000m typical\n\n**Speed Units:**\nEdit parse_vfr_hud function:\n- km/h: multiply by 3.6 (current)\n- mph: multiply by 2.237\n- knots: multiply by 1.944\n\n**Chart History:**\nEdit `altitude_chart` removeOlder:\n- \"1\" = 1 minute\n- \"5\" = 5 minutes (current)\n- \"60\" = 1 hour\n\n### Troubleshooting:\n\n**No altitude data:**\n- Check VFR_HUD messages arriving (1Hz typical)\n- Verify GPS has 3D fix\n- ArduPilot sends VFR_HUD after GPS lock\n\n**Altitude jumps around:**\n- Normal during GPS acquisition\n- Check barometer calibration\n- Wind can affect altitude hold\n\n**Airspeed always zero:**\n- Most multirotors don't have airspeed sensor\n- Normal for GPS-only navigation\n- Fixed-wing shows real airspeed\n\n### Requirements:\n- node-red-dashboard installed\n- VFR_HUD messages (1Hz)\n- GLOBAL_POSITION_INT messages (5Hz typical)\n- GPS must have 3D fix for accurate data",
+        "name": "Flight Data - Wire mavlink-comms output to ALL THREE filter nodes",
+        "info": "## Flight Data Gauges Dashboard\n\nComprehensive flight data display with real-time updates including battery monitoring.\n\n### Setup:\n1. Wire mavlink-comms output to ALL THREE filter nodes:\n   - Filter VFR_HUD\n   - Filter GLOBAL_POSITION_INT\n   - Filter SYS_STATUS\n2. Deploy\n3. Open Dashboard: http://localhost:1880/ui\n\n### Flight Data Displayed:\n\n**Altitude MSL** (Mean Sea Level)\n- Absolute altitude above sea level\n- From VFR_HUD message\n- Useful for terrain clearance\n\n**Altitude AGL** (Above Ground Level)\n- Relative altitude from takeoff point\n- From GLOBAL_POSITION_INT message\n- Your actual flight height\n\n**Airspeed**\n- Speed through air (what aircraft feels)\n- Important for fixed-wing aircraft\n- Converted from m/s to km/h\n\n**Groundspeed**\n- Speed over ground (GPS speed)\n- Affected by wind\n- Actual travel speed\n\n**Climb Rate**\n- Vertical speed (up/down)\n- ↑ = Climbing (green)\n- ↓ = Descending (orange)\n- → = Level flight (gray)\n\n**Heading**\n- Compass direction (0-360°)\n- 0° = North, 90° = East, etc.\n- Displayed as compass gauge\n\n**Throttle**\n- Current throttle percentage\n- 0% = idle, 100% = full power\n\n**Altitude History Chart**\n- Last 5 minutes of altitude data\n- Shows climb/descent trends\n- Helps identify altitude hold issues\n\n**Battery**\n- Remaining battery percentage (0-100%)\n- Color coded: Red <20%, Orange 20-30%, Yellow 30-50%, Green >50%\n- From SYS_STATUS message\n- Critical warning below 20%\n\n**Voltage**\n- Current battery voltage in volts\n- Typical LiPo cell: 3.0V (empty) to 4.2V (full)\n- 3S battery: 9-12.6V, 4S: 12-16.8V\n\n**Current**\n- Battery current draw in amps\n- Higher during acceleration/climb\n- Lower during hover/cruise\n\n**Power**\n- Total power consumption in watts\n- Calculated: Voltage × Current\n- Useful for energy efficiency analysis\n\n### Understanding the Data:\n\n**Altitude Difference:**\n- MSL > AGL = You're above sea level\n- Example: MSL=500m, AGL=50m = Takeoff at 450m elevation\n\n**Speed Difference:**\n- Airspeed > Groundspeed = Headwind\n- Airspeed < Groundspeed = Tailwind\n- Airspeed = Groundspeed = No wind\n\n**Climb Rate:**\n- Positive = Climbing\n- Negative = Descending  \n- Zero = Level flight or hovering\n\n### Customization:\n\n**Altitude Gauge Range:**\nEdit `ui_altitude` max value based on your flight ceiling:\n- Multirotor: 100-200m typical\n- Fixed-wing: 500-1000m typical\n\n**Speed Units:**\nEdit parse_vfr_hud function:\n- km/h: multiply by 3.6 (current)\n- mph: multiply by 2.237\n- knots: multiply by 1.944\n\n**Chart History:**\nEdit `altitude_chart` removeOlder:\n- \"1\" = 1 minute\n- \"5\" = 5 minutes (current)\n- \"60\" = 1 hour\n\n### Troubleshooting:\n\n**No altitude data:**\n- Check VFR_HUD messages arriving (1Hz typical)\n- Verify GPS has 3D fix\n- ArduPilot sends VFR_HUD after GPS lock\n\n**Altitude jumps around:**\n- Normal during GPS acquisition\n- Check barometer calibration\n- Wind can affect altitude hold\n\n**Airspeed always zero:**\n- Most multirotors don't have airspeed sensor\n- Normal for GPS-only navigation\n- Fixed-wing shows real airspeed\n\n**No battery data:**\n- Check SYS_STATUS messages arriving (1Hz typical)\n- Verify battery monitor is enabled in flight controller\n- Check battery sensor calibration\n\n**Battery percentage stuck:**\n- Some flight controllers estimate based on voltage\n- Smart batteries report actual capacity\n- May need capacity calibration in flight controller\n\n**Battery Warnings:**\n- Red (<20%): Land immediately if possible\n- Orange (20-30%): Return to launch\n- Yellow (30-50%): Monitor closely\n- Always leave reserve for return trip + landing\n\n### Requirements:\n- node-red-dashboard installed\n- VFR_HUD messages (1Hz)\n- GLOBAL_POSITION_INT messages (5Hz typical)\n- SYS_STATUS messages (1Hz)\n- GPS must have 3D fix for accurate data\n- Battery monitor must be configured in flight controller",
         "x": 280,
         "y": 40,
         "wires": []
