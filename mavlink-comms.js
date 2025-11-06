@@ -360,15 +360,6 @@ module.exports = function(RED) {
     // Load MAVLink parser for selected dialect
     async function initParser() {
       try {
-        const xmlPath = path.join(XML_DIR, `${node.dialect}.xml`);
-
-        if (!fs.existsSync(xmlPath)) {
-          throw new Error(`Dialect XML not found: ${node.dialect}.xml`);
-        }
-
-        // Parse definitions for UI
-        const defs = await parseXMLDefinitions(xmlPath);
-        node.context().global.set(`mavlink_defs_${node.id}`, defs);
 
         activeRegistry = getRegistryForDialect(node.dialect);
         sequence = 0;
@@ -616,9 +607,6 @@ module.exports = function(RED) {
     node.on("close", (done) => {
       // Remove event listener
       RED.events.removeListener("mavlink:outgoing", onOutgoingMessage);
-
-      // Clean up global context to prevent memory leak on redeploy
-      node.context().global.set(`mavlink_defs_${node.id}`, undefined);
 
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
