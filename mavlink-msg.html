@@ -89,46 +89,21 @@ return msg;
         if (data.ok && Object.keys(data.messages).length > 0) {
           allMessages = data.messages;
 
-          // Filter to only "sendable" messages (commands, not telemetry)
-          const isSendable = (name) => {
-            // Common command patterns
-            if (name.startsWith('COMMAND_')) return true;
-            if (name.startsWith('SET_')) return true;
-            if (name.startsWith('PARAM_')) return true;
-            if (name.startsWith('MISSION_')) return true;
-            if (name.startsWith('REQUEST_')) return true;
-            if (name.startsWith('MANUAL_')) return true;
-            if (name.startsWith('RC_CHANNELS_OVERRIDE')) return true;
-            if (name.startsWith('LOG_')) return true;
-
-            // Common telemetry messages to exclude
-            const telemetry = [
-              'HEARTBEAT', 'SYS_STATUS', 'SYSTEM_TIME', 'PING',
-              'GPS_RAW_INT', 'GPS_STATUS', 'SCALED_IMU', 'RAW_IMU',
-              'ATTITUDE', 'ATTITUDE_QUATERNION', 'LOCAL_POSITION_NED',
-              'GLOBAL_POSITION_INT', 'RC_CHANNELS', 'SERVO_OUTPUT_RAW',
-              'MISSION_CURRENT', 'NAV_CONTROLLER_OUTPUT', 'VFR_HUD',
-              'STATUSTEXT', 'DEBUG', 'NAMED_VALUE_FLOAT', 'NAMED_VALUE_INT',
-              'BATTERY_STATUS', 'AUTOPILOT_VERSION', 'VIBRATION', 'HOME_POSITION',
-              'ALTITUDE', 'TERRAIN_REPORT', 'WIND_COV', 'GPS_INPUT', 'GPS_RTCM_DATA',
-              'HIGH_LATENCY', 'ESTIMATOR_STATUS', 'POWER_STATUS'
-            ];
-
-            return !telemetry.includes(name);
-          };
-
-          // Sort and filter messages
-          const sendableNames = Object.keys(data.messages)
-            .filter(isSendable)
-            .sort();
+          // Sort messages alphabetically so the list is predictable regardless of
+          // how they were defined in the XML dialect.  The editor previously
+          // tried to guess which definitions were "sendable" and hid everything
+          // else, which made it impossible to select telemetry like HEARTBEAT or
+          // replies such as MISSION_COUNT.  Expose the full set so both
+          // transmission and decode workflows can rely on the same list.
+          const messageNames = Object.keys(data.messages).sort();
 
           $msg.append($("<option/>").text("-- None (Dynamic) --").val(""));
           $msg.append($("<option/>").text("──────────────").val("").attr("disabled", true));
 
-          if (sendableNames.length === 0) {
-            $msg.append($("<option/>").text("No sendable messages found").val(""));
+          if (messageNames.length === 0) {
+            $msg.append($("<option/>").text("No messages found").val(""));
           } else {
-            sendableNames.forEach(name => {
+            messageNames.forEach(name => {
               const msg = data.messages[name];
               const label = `${name} (${msg.id})`;
               $msg.append($("<option/>").text(label).val(name));
