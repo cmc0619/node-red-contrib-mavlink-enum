@@ -74,7 +74,7 @@
         "type": "function",
         "z": "status_flow",
         "name": "Parse GPS Status",
-        "func": "const gps = msg.payload;\nif (!gps) return null;\n\nconst fixTypes = [\n    'NO GPS', 'NO FIX', '2D FIX', '3D FIX',\n    'DGPS', 'RTK FLOAT', 'RTK FIXED'\n];\n\nconst fixType = gps.fix_type || 0;\nconst fixName = fixTypes[fixType] || `UNKNOWN (${fixType})`;\nconst satellites = gps.satellites_visible || 0;\n\nconst gpsStatus = `${fixName} (${satellites} sats)`;\nconst gpsColor = fixType >= 3 ? 'green' : (fixType >= 2 ? 'yellow' : 'red');\n\nreturn { \n    payload: gpsStatus, \n    topic: 'status/gps',\n    color: gpsColor\n};",
+        "func": "const gps = msg.payload;\nif (!gps) return null;\n\nconst fixTypes = [\n    'NO GPS', 'NO FIX', '2D FIX', '3D FIX',\n    'DGPS', 'RTK FLOAT', 'RTK FIXED'\n];\n\nconst fixType = gps.fixType || 0;\nconst fixName = fixTypes[fixType] || `UNKNOWN (${fixType})`;\nconst satellites = gps.satellitesVisible || 0;\n\nconst gpsStatus = `${fixName} (${satellites} sats)`;\nconst gpsColor = fixType >= 3 ? 'green' : (fixType >= 2 ? 'yellow' : 'red');\n\nreturn { \n    payload: gpsStatus, \n    topic: 'status/gps',\n    color: gpsColor\n};",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
