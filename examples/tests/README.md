@@ -4,10 +4,29 @@ Comprehensive automated test suite for MAVLink GCS nodes with simulated drone re
 
 ## Test Flows
 
-1. **simulated-drone-test.json** - Complete GCS + simulated drone with 3 test modes
-2. **telemetry-test.json** - Telemetry streaming and validation (ATTITUDE, GPS, BATTERY, etc.)
-3. **command-test.json** - Command protocol testing (ARM, TAKEOFF, LAND, RTL)
-4. **parameter-test.json** - Parameter read/write protocol
+1. **test-dashboard.json** - 🎯 **START HERE** - Unified control panel for all tests
+2. **simulated-drone-test.json** - Complete GCS + simulated drone with 3 test modes
+3. **telemetry-test.json** - Telemetry streaming and validation (ATTITUDE, GPS, BATTERY, etc.)
+4. **command-test.json** - Command protocol testing (ARM, TAKEOFF, LAND, RTL)
+5. **parameter-test.json** - Parameter read/write protocol
+
+## Quick Start with Dashboard
+
+**Easiest way to run all tests:**
+
+1. Import all 5 test flow JSON files into Node-RED
+2. Deploy all flows
+3. Open the **MAVLink Test Dashboard** tab
+4. Click **RUN ALL TESTS** button for automated full suite
+5. Or use individual test buttons for targeted testing
+6. Click **Show Test Summary** to see aggregated results
+
+The dashboard provides:
+- Single control panel for all test suites
+- One-click execution of individual tests or full suite
+- Centralized results collection and monitoring
+- Real-time status indicators for each test type
+- Test sequence coordination (runs tests with appropriate delays)
 
 ## Overview
 
@@ -36,9 +55,22 @@ This test suite validates that Node-RED GCS nodes correctly handle:
 
 ## Installation
 
-1. Import `simulated-drone-test.json` into Node-RED
-2. Deploy the flow
-3. Both GCS and Drone comms nodes will start on localhost UDP
+**Option 1: Quick Start with Dashboard (Recommended)**
+1. Import all 5 test flow JSON files into Node-RED:
+   - `test-dashboard.json` (control panel)
+   - `simulated-drone-test.json`
+   - `telemetry-test.json`
+   - `command-test.json`
+   - `parameter-test.json`
+2. Deploy all flows
+3. Open the "MAVLink Test Dashboard" tab
+4. Click buttons to run tests
+
+**Option 2: Individual Test Flows**
+1. Import specific test flow(s) you want to use
+2. Deploy the flow(s)
+3. Each flow has its own inject buttons for test scenarios
+4. All flows use localhost UDP (GCS:14550, Drone:14551)
 
 ## Test Modes
 
@@ -46,7 +78,7 @@ This test suite validates that Node-RED GCS nodes correctly handle:
 **Purpose**: Validate normal successful operation
 
 **Drone Behavior**:
-- Responds to HEARTBEAT with valid HEARTBEAT
+- Responds to MISSION_REQUEST_LIST with MISSION_COUNT
 - Accepts MISSION_COUNT and requests each waypoint in sequence
 - Sends MISSION_ACK(ACCEPTED) after final waypoint
 
@@ -83,7 +115,7 @@ Click one of the mode inject buttons:
 
 ### 2. Run Test Scenario
 Click a test scenario inject button:
-- **Test: Heartbeat** - Basic connectivity test
+- **Test: Mission List Request** - Basic mission protocol test
 - **Test: Mission Upload** - Full mission protocol with edge cases
 
 ### 3. View Results
@@ -93,10 +125,10 @@ Click a test scenario inject button:
 
 ## Test Scenarios
 
-### Heartbeat Test
-- Sends HEARTBEAT from GCS
-- Expects HEARTBEAT response from drone
-- **Pass**: Response received
+### Mission List Request Test
+- Sends MISSION_REQUEST_LIST from GCS
+- Expects MISSION_COUNT response from drone
+- **Pass**: MISSION_COUNT received with waypoint count
 - **Fail**: No response within 10 seconds
 
 ### Mission Upload Test
@@ -150,12 +182,12 @@ Summary format:
 
 ## Expected Test Matrix
 
-| Test Scenario      | Happy Mode | Chaos Mode | Failure Mode |
-|-------------------|------------|------------|--------------|
-| Heartbeat         | PASS       | PASS       | FAIL*        |
-| Mission Upload    | PASS       | PASS       | PASS**       |
+| Test Scenario        | Happy Mode | Chaos Mode | Failure Mode |
+|---------------------|------------|------------|--------------|
+| Mission List Request| PASS       | PASS       | FAIL*        |
+| Mission Upload      | PASS       | PASS       | PASS**       |
 
-\* Failure mode: Drone doesn't respond to heartbeat
+\* Failure mode: Drone doesn't respond to mission list request
 \*\* Failure mode: Should PASS if GCS correctly handles rejection
 
 ## Troubleshooting
@@ -187,6 +219,95 @@ To add new test scenarios:
 
 ---
 
+## Test Flow 1: Test Dashboard (Control Panel)
+
+**File**: `test-dashboard.json`
+
+### Purpose
+Provides a unified control panel for running and monitoring all MAVLink test suites from a single interface. This is the recommended starting point for testing.
+
+### Features
+- **Centralized Test Execution** - All test types accessible from one dashboard
+- **Results Collection** - Aggregates results from all test flows in real-time
+- **Test Sequencing** - "RUN ALL TESTS" button executes full suite with proper timing
+- **Individual Test Controls** - Buttons for each test scenario
+- **Summary Reports** - View aggregated statistics and recent results
+- **Clear Results** - Reset result history between test runs
+
+### Test Categories on Dashboard
+
+**Mission Upload Tests:**
+- Mission: Happy Path
+- Mission: Chaos
+- Mission: Failure
+
+**Telemetry Streaming:**
+- Start Telemetry Stream
+- Stop Telemetry Stream
+
+**Command Protocol:**
+- CMD: ARM
+- CMD: TAKEOFF
+- CMD: LAND
+- CMD: RTL
+- Full Flight Sequence
+
+**Parameter Operations:**
+- Request All Params
+- Set Parameter
+
+### Usage
+
+**Quick Test (Full Suite):**
+1. Import all 5 test flows into Node-RED
+2. Deploy all flows
+3. Open "MAVLink Test Dashboard" tab
+4. Click **RUN ALL TESTS**
+5. Watch debug panel for results
+6. Click **Show Test Summary** for overview
+
+**Individual Test:**
+1. Click any specific test button (e.g., "Mission: Happy Path")
+2. Results appear in debug panel
+3. Node status indicators show real-time progress
+
+**Managing Results:**
+- **Show Test Summary** - Display aggregated statistics and recent results
+- **Clear Results** - Reset the results buffer (keeps last 100 results)
+
+### How It Works
+
+The dashboard uses function nodes as "coordinators" that:
+1. Receive test triggers from inject buttons
+2. Format test messages with timestamps
+3. Route to centralized results collector
+4. Update node status indicators
+
+The **Results Collector** maintains a circular buffer of the last 100 test results and can generate summaries showing:
+- Total number of results collected
+- Number of unique test types run
+- Count per test type
+- First and last execution time for each test type
+- Latest 10 results
+
+The **RUN ALL TESTS** sequencer executes tests with appropriate delays:
+- Mission test (immediate)
+- Telemetry start (3s delay)
+- Telemetry stop (8s - allowing 5s of streaming)
+- Commands in sequence (9-12s)
+- Parameter operations (14-16s)
+
+### Integration Notes
+
+This dashboard flow is designed to complement the other test flows, not replace them. It provides:
+- **Coordination layer** - Triggers tests in other flows
+- **Results aggregation** - Collects outputs from all flows
+- **Convenience controls** - One-click access to all tests
+
+For the dashboard to work effectively, all underlying test flows must be imported and deployed. The dashboard buttons trigger the same test scenarios as clicking buttons in individual test flows.
+
+---
+
 ## Test Flow 2: Telemetry Test
 
 **File**: `telemetry-test.json`
@@ -196,8 +317,7 @@ Validates telemetry message handling with realistic simulated drone streaming co
 
 ### Features
 - **Simulated drone telemetry generator** - Streams at 10Hz with realistic flight motion
-- **Message types tested**:
-  - `HEARTBEAT` - Connection and system status
+- **Message types tested** (5 types):
   - `ATTITUDE` - Roll/pitch/yaw with rates (±15° roll, ±10° pitch)
   - `GLOBAL_POSITION_INT` - GPS lat/lon/alt with movement
   - `VFR_HUD` - Airspeed, groundspeed, heading, throttle, climb
@@ -348,12 +468,18 @@ When you're ready to test with real hardware:
 
 ## Future Enhancements
 
-- [x] Add parameter request/set tests
-- [x] Test command (MAV_CMD_*) protocol
-- [x] Add telemetry stream tests (position, attitude, etc)
-- [ ] Export test results to JSON/CSV for CI/CD
-- [ ] Add performance metrics (latency, throughput)
-- [ ] Create dashboard UI for test control
-- [ ] Add mission protocol tests (waypoint upload/download)
-- [ ] Test fence and rally point protocols
-- [ ] Add data stream request tests (REQUEST_DATA_STREAM)
+**Completed:**
+- [x] Add parameter request/set tests (parameter-test.json)
+- [x] Test command (MAV_CMD_*) protocol (command-test.json)
+- [x] Add telemetry stream tests (telemetry-test.json - 5 message types)
+- [x] Create dashboard UI for test control (test-dashboard.json)
+- [x] Add mission protocol tests (simulated-drone-test.json - 3 test modes + mission list request)
+
+**Potential Future Work:**
+- [ ] Export test results to JSON/CSV for CI/CD integration
+- [ ] Add performance metrics (latency, throughput tracking)
+- [ ] Test fence and rally point protocols (FENCE_POINT, RALLY_POINT)
+- [ ] Add data stream request tests (REQUEST_DATA_STREAM, SET_MESSAGE_INTERVAL)
+- [ ] Mission download protocol testing (MISSION_REQUEST_LIST, MISSION_REQUEST_INT)
+- [ ] Geofence violation simulation and handling
+- [ ] Battery failsafe testing scenarios

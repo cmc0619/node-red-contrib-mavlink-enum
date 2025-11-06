@@ -14,73 +14,121 @@ module.exports = function(RED) {
   });
 
   // Parse XML to get message and enum definitions (with caching)
-  async function parseXMLDefinitions(xmlPath) {
-    // Check cache first
+  // Parse XML to get message and enum definitions (with caching and include support)
+async function parseXMLDefinitions(xmlPath, processedFiles = null) {
+  // If this is a top-level call, check cache and initialize tracking
+  const isTopLevel = processedFiles === null;
+  if (isTopLevel) {
     const cacheKey = path.basename(xmlPath);
     if (definitionsCache[cacheKey]) {
       return definitionsCache[cacheKey];
     }
-    const xml = await fs.promises.readFile(xmlPath, "utf8");
-    const parser = new xml2js.Parser();
-    const result = await parser.parseStringPromise(xml);
+    processedFiles = new Set();
+  }
 
-    const enums = Object.create(null);  // Prevent prototype pollution
-    const messages = Object.create(null);  // Prevent prototype pollution
+  // Security check - ensure path is within XML_DIR
+  const resolvedPath = path.resolve(xmlPath);
+  if (!resolvedPath.startsWith(path.resolve(XML_DIR) + path.sep)) {
+    throw new Error("Invalid XML path - outside XML directory");
+  }
 
-    // Extract enums
-    if (result.mavlink?.enums?.[0]?.enum) {
-      result.mavlink.enums[0].enum.forEach(e => {
-        const enumName = e.$.name;
-        enums[enumName] = (e.entry || []).map(entry => {
-          // Parse param definitions for MAV_CMD entries
-          const params = (entry.param || [])
-            .map(p => ({
-              index: parseInt(p.$.index || "0", 10),
-              label: p.$.label || "",
-              units: p.$.units || null,
-              description: (p._ || "").trim()
-            }))
-            .filter(p => {
-              // Filter out empty/unused params
-              const desc = p.description.toLowerCase();
-              return p.description && desc !== "empty" && desc !== "unused" && desc !== "reserved";
-            });
+  // Prevent circular includes
+  const normalizedPath = path.normalize(resolvedPath);
+  if (processedFiles.has(normalizedPath)) {
+    return { enums: Object.create(null), messages: Object.create(null) };
+  }
+  processedFiles.add(normalizedPath);
 
-          return {
-            name: entry.$.name,
-            value: entry.$.value || "0",  // Keep as string to preserve hex/bitshift expressions
-            description: entry.description?.[0] || "",
-            params: params.length > 0 ? params : null  // Only include if params exist
-          };
-        });
-      });
+  // Parse the XML file
+  const xml = await fs.promises.readFile(xmlPath, "utf8");
+  const parser = new xml2js.Parser();
+  const result = await parser.parseStringPromise(xml);
+
+  // Start with empty definitions
+  const enums = Object.create(null);  // Prevent prototype pollution
+  const messages = Object.create(null);  // Prevent prototype pollution
+
+  // Process includes FIRST (recursively)
+  if (result.mavlink?.include) {
+    const includes = Array.isArray(result.mavlink.include) 
+      ? result.mavlink.include 
+      : [result.mavlink.include];
+    
+    for (const includeFile of includes) {
+      const includePath = path.join(path.dirname(xmlPath), includeFile);
+      if (fs.existsSync(includePath)) {
+        try {
+          const included = await parseXMLDefinitions(includePath, processedFiles);
+          // Merge included definitions (current file will override later)
+          Object.assign(enums, included.enums);
+          Object.assign(messages, included.messages);
+        } catch (err) {
+          // Log warning but continue - don't fail entire parse for one bad include
+          console.warn(`Warning: Failed to parse included file ${includeFile}:`, err.message);
+        }
+      }
     }
+  }
 
-    // Extract messages
-    if (result.mavlink?.messages?.[0]?.message) {
-      result.mavlink.messages[0].message.forEach(m => {
-        const msgName = m.$.name;
-        messages[msgName] = {
-          id: parseInt(m.$.id, 10),
-          description: m.description?.[0] || "",
-          fields: (m.field || []).map(f => ({
-            name: f.$.name,
-            type: f.$.type,
-            enum: f.$.enum || null,
-            units: f.$.units || null,
-            description: f._ || ""
+  // NOW parse this file's definitions (will override any duplicates from includes)
+  
+  // Extract enums
+  if (result.mavlink?.enums?.[0]?.enum) {
+    result.mavlink.enums[0].enum.forEach(e => {
+      const enumName = e.$.name;
+      enums[enumName] = (e.entry || []).map(entry => {
+        // Parse param definitions for MAV_CMD entries
+        const params = (entry.param || [])
+          .map(p => ({
+            index: parseInt(p.$.index || "0", 10),
+            label: p.$.label || "",
+            units: p.$.units || null,
+            description: (p._ || "").trim()
           }))
+          .filter(p => {
+            // Filter out empty/unused params
+            const desc = p.description.toLowerCase();
+            return p.description && desc !== "empty" && desc !== "unused" && desc !== "reserved";
+          });
+
+        return {
+          name: entry.$.name,
+          value: entry.$.value || "0",  // Keep as string to preserve hex/bitshift expressions
+          description: entry.description?.[0] || "",
+          params: params.length > 0 ? params : null  // Only include if params exist
         };
       });
-    }
-
-    const defs = { enums, messages };
-
-    // Store in cache
-    definitionsCache[cacheKey] = defs;
-
-    return defs;
+    });
   }
+
+  // Extract messages
+  if (result.mavlink?.messages?.[0]?.message) {
+    result.mavlink.messages[0].message.forEach(m => {
+      const msgName = m.$.name;
+      messages[msgName] = {
+        id: parseInt(m.$.id, 10),
+        description: m.description?.[0] || "",
+        fields: (m.field || []).map(f => ({
+          name: f.$.name,
+          type: f.$.type,
+          enum: f.$.enum || null,
+          units: f.$.units || null,
+          description: f._ || ""
+        }))
+      };
+    });
+  }
+
+  const defs = { enums, messages };
+
+  // Store in cache (only at top level)
+  if (isTopLevel) {
+    const cacheKey = path.basename(xmlPath);
+    definitionsCache[cacheKey] = defs;
+  }
+
+  return defs;
+}
 
   // Admin endpoints
   RED.httpAdmin.get("/mavlink-msg/messages", async (req, res) => {

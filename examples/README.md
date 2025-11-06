@@ -27,6 +27,7 @@ Monitor your drone's status in real-time with Dashboard widgets.
 - **battery-gauge.json** - Battery percentage and voltage monitoring
 - **status-panel.json** - Armed state, flight mode, GPS fix status
 - **altitude-speed.json** - Real-time altitude and airspeed gauges
+- **complete-telemetry-dashboard.json** - Single-page dashboard merging flight, battery, ESC, vibration, terrain & EKF data
 
 ### Advanced Tools (`advanced/`)
 Power user features for mission planning, parameter tuning, and safety.
@@ -40,6 +41,17 @@ Power user features for mission planning, parameter tuning, and safety.
 Full-featured ground control station in a single flow.
 
 - **full-ground-station.json** - Everything combined into one comprehensive dashboard
+
+### Test Suite (`tests/`)
+Comprehensive automated test flows with simulated drone responses.
+
+- **test-dashboard.json** - 🎯 **START HERE** - Unified control panel for all tests
+- **simulated-drone-test.json** - Mission upload tests with 3 modes (happy, chaos, failure) + mission list request
+- **telemetry-test.json** - Streaming telemetry validation (10Hz, 5 message types)
+- **command-test.json** - Command protocol testing (ARM, TAKEOFF, LAND, RTL)
+- **parameter-test.json** - Parameter read/write protocol testing
+
+See `tests/README.md` for detailed documentation and usage instructions.
 
 ## 🔧 Requirements
 
