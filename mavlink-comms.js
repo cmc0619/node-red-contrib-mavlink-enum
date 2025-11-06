@@ -188,16 +188,33 @@ module.exports = function(RED) {
     }));
   }
 
-  // Parse XML to extract enum and message definitions
+  // Parse XML to extract enum and message definitions (with include support)
   async function parseXMLDefinitions(xmlPath) {
     const xml = await fs.promises.readFile(xmlPath, "utf8");
     const parser = new xml2js.Parser();
     const result = await parser.parseStringPromise(xml);
 
-    const enums = Object.create(null);  // Prevent prototype pollution
-    const messages = Object.create(null);  // Prevent prototype pollution
+    let enums = Object.create(null);  // Prevent prototype pollution
+    let messages = Object.create(null);  // Prevent prototype pollution
 
-    // Extract enums
+    // Process includes first (parent dialects)
+    if (result.mavlink?.include) {
+      const includes = Array.isArray(result.mavlink.include)
+        ? result.mavlink.include
+        : [result.mavlink.include];
+
+      for (const includeFile of includes) {
+        const includePath = path.join(path.dirname(xmlPath), includeFile);
+        if (fs.existsSync(includePath)) {
+          const parentDefs = await parseXMLDefinitions(includePath);
+          // Merge parent definitions (child will override if same key)
+          Object.assign(enums, parentDefs.enums);
+          Object.assign(messages, parentDefs.messages);
+        }
+      }
+    }
+
+    // Extract enums from current file (overrides parent if duplicate)
     if (result.mavlink?.enums?.[0]?.enum) {
       result.mavlink.enums[0].enum.forEach(e => {
         const enumName = e.$.name;
@@ -209,7 +226,7 @@ module.exports = function(RED) {
       });
     }
 
-    // Extract messages
+    // Extract messages from current file (overrides parent if duplicate)
     if (result.mavlink?.messages?.[0]?.message) {
       result.mavlink.messages[0].message.forEach(m => {
         const msgName = m.$.name;
