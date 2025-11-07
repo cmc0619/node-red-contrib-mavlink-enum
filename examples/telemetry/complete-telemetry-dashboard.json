@@ -1,15 +1,15 @@
 [
     {
-        "id": "1cd89aae52724e74",
+        "id": "mavlink_telemetry_dashboard",
         "type": "tab",
         "label": "MAVLink: Telemetry Dashboard",
         "disabled": false,
         "info": "Unified telemetry dashboard combining battery, flight, position, ESC, vibration, terrain and EKF monitors.\\n\\nRequires: node-red-dashboard"
     },
     {
-        "id": "c168559fd1aa4775",
+        "id": "connect_mavlink_comms_telemetry_router",
         "type": "comment",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Connect mavlink-comms \u2192 Telemetry Router",
         "info": "### MAVLink Telemetry Dashboard\\n\\n1. Install **node-red-dashboard**.\\n2. Wire the output of **mavlink-comms** to the **Telemetry Router** switch.\\n3. Deploy and open the dashboard at http://localhost:1880/ui.\\n\\nPanels expose battery, flight, GPS position, ESC telemetry, vibration, terrain and EKF state.",
         "x": 310,
@@ -17,9 +17,9 @@
         "wires": []
     },
     {
-        "id": "2114d5e7dd61410f",
+        "id": "telemetry_router",
         "type": "switch",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Telemetry Router",
         "property": "topic",
         "propertyType": "msg",
@@ -72,35 +72,35 @@
         "y": 160,
         "wires": [
             [
-                "1fd96f84c97a4cbd"
+                "parse_battery"
             ],
             [
-                "1fd96f84c97a4cbd"
+                "parse_battery"
             ],
             [
-                "97da38a8f91e4a3c"
+                "parse_flight_data"
             ],
             [
-                "1e5b0f3bdae04fae"
+                "parse_gps_position"
             ],
             [
-                "c68b271b0f614bfc"
+                "parse_esc_telemetry"
             ],
             [
-                "6b4b9fee4e914283"
+                "parse_vibration"
             ],
             [
-                "b817b7271be94375"
+                "parse_terrain"
             ],
             [
-                "96fbc7d21f0c4e02"
+                "parse_ekf"
             ]
         ]
     },
     {
-        "id": "1fd96f84c97a4cbd",
+        "id": "parse_battery",
         "type": "function",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Parse Battery",
         "func": "const state = context.get('state') || {\n    voltage: 0,\n    current: 0,\n    percent: 0,\n    consumed: null,\n    temperature: null\n};\n\nif (msg.topic === 'BATTERY_STATUS') {\n    const bat = msg.payload || {};\n    const voltages = Array.isArray(bat.voltages) ? bat.voltages.filter(v => typeof v === 'number' && v > 0) : [];\n    if (voltages.length) {\n        state.voltage = voltages.reduce((sum, v) => sum + v, 0) / 1000; // mV \u2192 V\n    }\n    if (typeof bat.current_battery === 'number' && bat.current_battery !== -1) {\n        state.current = bat.current_battery / 100; // cA \u2192 A\n    }\n    if (typeof bat.battery_remaining === 'number' && bat.battery_remaining >= 0) {\n        state.percent = bat.battery_remaining;\n    }\n    if (typeof bat.current_consumed === 'number' && bat.current_consumed >= 0) {\n        state.consumed = bat.current_consumed / 1000; // mAh \u2192 Ah\n    }\n    if (typeof bat.temperature === 'number' && bat.temperature > -32768) {\n        state.temperature = bat.temperature / 100; // cdegC \u2192 \u00b0C\n    }\n} else if (msg.topic === 'SYS_STATUS') {\n    const sys = msg.payload || {};\n    if (typeof sys.voltage_battery === 'number' && sys.voltage_battery > 0) {\n        state.voltage = sys.voltage_battery / 1000; // mV \u2192 V\n    }\n    if (typeof sys.current_battery === 'number' && sys.current_battery !== -1) {\n        state.current = sys.current_battery / 100; // cA \u2192 A\n    }\n    if (typeof sys.battery_remaining === 'number' && sys.battery_remaining >= 0) {\n        state.percent = sys.battery_remaining;\n    }\n}\n\ncontext.set('state', state);\n\nconst gaugeMsg = { payload: Number.isFinite(state.percent) ? state.percent : 0, topic: 'battery/percent' };\nconst voltageMsg = { payload: state.voltage > 0 ? state.voltage.toFixed(2) : '0.00', topic: 'battery/voltage' };\nconst currentMsg = { payload: state.current.toFixed(2), topic: 'battery/current' };\nconst consumedMsg = state.consumed != null ? { payload: state.consumed.toFixed(2), topic: 'battery/consumed' } : null;\nconst tempMsg = state.temperature != null ? { payload: state.temperature.toFixed(1), topic: 'battery/temperature' } : null;\nconst chartMsgs = [\n    { payload: state.voltage || 0, topic: 'Voltage (V)' },\n    { payload: state.current || 0, topic: 'Current (A)' },\n    { payload: state.percent || 0, topic: 'Remaining (%)' }\n];\n\nconst lowThreshold = 20;\nconst toastMsg = state.percent != null && state.percent <= lowThreshold\n    ? { payload: `\u26a0\ufe0f Battery low: ${state.percent.toFixed(0)}% (${state.voltage.toFixed(1)} V)`, position: 'top right', timeout: 5 }\n    : null;\n\nreturn [\n    [gaugeMsg],\n    [voltageMsg],\n    [currentMsg],\n    consumedMsg ? [consumedMsg] : [],\n    tempMsg ? [tempMsg] : [],\n    chartMsgs,\n    toastMsg ? [toastMsg] : []\n];",
         "outputs": 7,
@@ -113,32 +113,32 @@
         "y": 140,
         "wires": [
             [
-                "92ea97dfc1664d04"
+                "battery"
             ],
             [
-                "3da75415f0e24248"
+                "voltage"
             ],
             [
-                "d5308ac405174d78"
+                "current"
             ],
             [
-                "a31c8254fee8479e"
+                "consumed"
             ],
             [
-                "92041e258d904169"
+                "temperature"
             ],
             [
-                "e5ba1bd8974e4696"
+                "battery_trend"
             ],
             [
-                "57dd0a2bac84466f"
+                "battery_alerts"
             ]
         ]
     },
     {
-        "id": "97da38a8f91e4a3c",
+        "id": "parse_flight_data",
         "type": "function",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Parse Flight Data",
         "func": "const hud = msg.payload || {};\nconst altitude = typeof hud.alt === 'number' ? hud.alt : 0;\nconst airspeed = typeof hud.airspeed === 'number' ? hud.airspeed : 0;\nconst groundspeed = typeof hud.groundspeed === 'number' ? hud.groundspeed : 0;\nconst climb = typeof hud.climb === 'number' ? hud.climb : 0;\nconst heading = typeof hud.heading === 'number' ? hud.heading : 0;\n\nconst gaugeMsg = { payload: altitude, topic: 'flight/altitude' };\nconst groundMsg = { payload: `${groundspeed.toFixed(1)} m/s`, topic: 'flight/groundspeed' };\nconst airMsg = { payload: `${airspeed.toFixed(1)} m/s`, topic: 'flight/airspeed' };\nconst climbMsg = { payload: `${climb.toFixed(1)} m/s`, topic: 'flight/climb' };\nconst headingMsg = { payload: `${heading.toFixed(0)}\u00b0`, topic: 'flight/heading' };\nconst speedChart = [\n    { payload: groundspeed, topic: 'Groundspeed (m/s)' },\n    { payload: airspeed, topic: 'Airspeed (m/s)' }\n];\nconst altitudeChart = [{ payload: altitude, topic: 'Altitude (m)' }];\n\nreturn [\n    [gaugeMsg],\n    [groundMsg],\n    [airMsg],\n    [climbMsg],\n    [headingMsg],\n    speedChart,\n    altitudeChart\n];",
         "outputs": 7,
@@ -151,32 +151,32 @@
         "y": 320,
         "wires": [
             [
-                "cd1f7da4982847ee"
+                "altitude"
             ],
             [
-                "9c9940e6eecb428b"
+                "groundspeed"
             ],
             [
-                "c0b809409a9645ad"
+                "airspeed"
             ],
             [
-                "c010229d7aa64a0c"
+                "climb"
             ],
             [
-                "807431de10134966"
+                "heading"
             ],
             [
-                "54f1030757bc4ac1"
+                "speed_trend"
             ],
             [
-                "a63e421d2a364e1d"
+                "altitude_trend"
             ]
         ]
     },
     {
-        "id": "1e5b0f3bdae04fae",
+        "id": "parse_gps_position",
         "type": "function",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Parse GPS Position",
         "func": "const pos = msg.payload || {};\nconst lat = typeof pos.lat === 'number' ? pos.lat / 1e7 : null;\nconst lon = typeof pos.lon === 'number' ? pos.lon / 1e7 : null;\nconst alt = typeof pos.alt === 'number' ? pos.alt / 1000 : null; // mm \u2192 m\nconst relAlt = typeof pos.relative_alt === 'number' ? pos.relative_alt / 1000 : null;\nconst hdg = typeof pos.hdg === 'number' && pos.hdg !== 65535 ? pos.hdg / 100 : null;\n\nconst latMsg = { payload: lat != null ? lat.toFixed(7) : '\u2014', topic: 'position/lat' };\nconst lonMsg = { payload: lon != null ? lon.toFixed(7) : '\u2014', topic: 'position/lon' };\nconst altMsg = { payload: alt != null ? `${alt.toFixed(1)} m AMSL` : '\u2014', topic: 'position/alt' };\nconst relAltMsg = { payload: relAlt != null ? `${relAlt.toFixed(1)} m AGL` : '\u2014', topic: 'position/relative' };\nconst headingMsg = { payload: hdg != null ? `${hdg.toFixed(1)}\u00b0` : '\u2014', topic: 'position/track' };\nconst trackChart = [\n    lat != null ? { payload: lat, topic: 'Latitude (\u00b0)' } : null,\n    lon != null ? { payload: lon, topic: 'Longitude (\u00b0)' } : null,\n    relAlt != null ? { payload: relAlt, topic: 'Rel Alt (m)' } : null\n].filter(Boolean);\n\nreturn [\n    [latMsg],\n    [lonMsg],\n    [altMsg],\n    [relAltMsg],\n    [headingMsg],\n    trackChart\n];",
         "outputs": 6,
@@ -189,29 +189,29 @@
         "y": 460,
         "wires": [
             [
-                "225e3cf2ddad44e4"
+                "latitude"
             ],
             [
-                "eeac4dac500d494c"
+                "longitude"
             ],
             [
-                "f155bb9e9d6046ea"
+                "altitude_amsl"
             ],
             [
-                "ecf105fb284140c9"
+                "altitude_agl"
             ],
             [
-                "77359bad63f64e53"
+                "track"
             ],
             [
-                "c4477831dd7044cd"
+                "position_trend"
             ]
         ]
     },
     {
-        "id": "c68b271b0f614bfc",
+        "id": "parse_esc_telemetry",
         "type": "function",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Parse ESC Telemetry",
         "func": "const esc = msg.payload || {};\nconst count = typeof esc.count === 'number' && esc.count > 0 ? esc.count : 4;\nconst rpm = Array.isArray(esc.rpm) ? esc.rpm : [];\nconst current = Array.isArray(esc.current) ? esc.current : [];\nconst temperature = Array.isArray(esc.temperature) ? esc.temperature : [];\nconst voltage = Array.isArray(esc.voltage) ? esc.voltage : [];\n\nconst table = [];\nconst rpmMsgs = [];\nconst currentMsgs = [];\nconst tempMsgs = [];\nconst voltMsgs = [];\n\nfor (let i = 0; i < count; i += 1) {\n    const escId = i + 1;\n    const rpmVal = typeof rpm[i] === 'number' ? rpm[i] : null;\n    const currentVal = typeof current[i] === 'number' ? current[i] / 100 : null; // cA \u2192 A\n    const tempVal = typeof temperature[i] === 'number' ? temperature[i] / 10 : null; // 0.1\u00b0C\n    const voltVal = typeof voltage[i] === 'number' ? voltage[i] / 100 : null; // 0.01V\n\n    table.push({\n        esc: escId,\n        rpm: rpmVal != null ? rpmVal : '\u2014',\n        current: currentVal != null ? currentVal.toFixed(2) : '\u2014',\n        temp: tempVal != null ? tempVal.toFixed(1) : '\u2014',\n        voltage: voltVal != null ? voltVal.toFixed(2) : '\u2014'\n    });\n\n    if (rpmVal != null) rpmMsgs.push({ payload: rpmVal, topic: `ESC ${escId}` });\n    if (currentVal != null) currentMsgs.push({ payload: currentVal, topic: `ESC ${escId}` });\n    if (tempVal != null) tempMsgs.push({ payload: tempVal, topic: `ESC ${escId}` });\n    if (voltVal != null) voltMsgs.push({ payload: voltVal, topic: `ESC ${escId}` });\n}\n\nreturn [\n    [{ payload: table }],\n    rpmMsgs,\n    currentMsgs,\n    tempMsgs,\n    voltMsgs\n];",
         "outputs": 5,
@@ -224,26 +224,26 @@
         "y": 620,
         "wires": [
             [
-                "5a3c8b9196a24e4a"
+                "esc_summary"
             ],
             [
-                "9a1bdea86923427d"
+                "esc_rpm"
             ],
             [
-                "0cd933d098fc4b8d"
+                "esc_current"
             ],
             [
-                "0f832c09727e444b"
+                "esc_temp"
             ],
             [
-                "fd78f9fa5c73419e"
+                "esc_voltage"
             ]
         ]
     },
     {
-        "id": "6b4b9fee4e914283",
+        "id": "parse_vibration",
         "type": "function",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Parse Vibration",
         "func": "const vib = msg.payload || {};\nconst vibX = typeof vib.vibration_x === 'number' ? vib.vibration_x : 0;\nconst vibY = typeof vib.vibration_y === 'number' ? vib.vibration_y : 0;\nconst vibZ = typeof vib.vibration_z === 'number' ? vib.vibration_z : 0;\nconst clip0 = typeof vib.clipping_0 === 'number' ? vib.clipping_0 : 0;\nconst clip1 = typeof vib.clipping_1 === 'number' ? vib.clipping_1 : 0;\nconst clip2 = typeof vib.clipping_2 === 'number' ? vib.clipping_2 : 0;\n\nconst chartMsgs = [\n    { payload: vibX, topic: 'X (m/s\u00b2)' },\n    { payload: vibY, topic: 'Y (m/s\u00b2)' },\n    { payload: vibZ, topic: 'Z (m/s\u00b2)' }\n];\nconst clipMsg = { payload: `Clipping: ${clip0}/${clip1}/${clip2}`, topic: 'vibration/clipping' };\n\nreturn [chartMsgs, [clipMsg]];",
         "outputs": 2,
@@ -256,17 +256,17 @@
         "y": 760,
         "wires": [
             [
-                "6e8fb489902e4c1d"
+                "vibration"
             ],
             [
-                "cbc6db7c0ce94ace"
+                "clipping"
             ]
         ]
     },
     {
-        "id": "b817b7271be94375",
+        "id": "parse_terrain",
         "type": "function",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Parse Terrain",
         "func": "const terrain = msg.payload || {};\nconst terrainHeight = typeof terrain.terrainHeight === 'number' ? terrain.terrainHeight : null;\nconst currentHeight = typeof terrain.currentHeight === 'number' ? terrain.currentHeight : null;\nconst pending = typeof terrain.pending === 'number' ? terrain.pending : null;\nconst loaded = typeof terrain.loaded === 'number' ? terrain.loaded : null;\nconst spacing = typeof terrain.spacing === 'number' ? terrain.spacing : null;\n\nconst heightMsg = { payload: terrainHeight != null ? `${terrainHeight.toFixed(1)} m` : '\u2014', topic: 'terrain/height' };\nconst clearanceMsg = { payload: terrainHeight != null && currentHeight != null ? `${(terrainHeight - currentHeight).toFixed(1)} m clearance` : '\u2014', topic: 'terrain/clearance' };\nconst statusMsg = { payload: `Tiles loaded: ${loaded != null ? loaded : '\u2014'} / pending: ${pending != null ? pending : '\u2014'} / spacing: ${spacing != null ? spacing : '\u2014'} m`, topic: 'terrain/status' };\n\nreturn [\n    [heightMsg],\n    [clearanceMsg],\n    [statusMsg]\n];",
         "outputs": 3,
@@ -279,20 +279,20 @@
         "y": 880,
         "wires": [
             [
-                "3dd412f0ace94010"
+                "terrain_height"
             ],
             [
-                "02b7320ac4d7487b"
+                "clearance"
             ],
             [
-                "ff913410f5fe44e9"
+                "terrain_status"
             ]
         ]
     },
     {
-        "id": "96fbc7d21f0c4e02",
+        "id": "parse_ekf",
         "type": "function",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Parse EKF",
         "func": "const ekf = msg.payload || {};\nconst velocityVar = typeof ekf.velocity_variance === 'number' ? ekf.velocity_variance : null;\nconst posHorizVar = typeof ekf.pos_horiz_variance === 'number' ? ekf.pos_horiz_variance : null;\nconst posVertVar = typeof ekf.pos_vert_variance === 'number' ? ekf.pos_vert_variance : null;\nconst compassVar = typeof ekf.compass_variance === 'number' ? ekf.compass_variance : null;\nconst terrainVar = typeof ekf.terrain_alt_variance === 'number' ? ekf.terrain_alt_variance : null;\nconst flags = typeof ekf.flags === 'number' ? ekf.flags : 0;\n\nconst bits = [\n    { bit: 0, label: 'ATTITUDE' },\n    { bit: 1, label: 'VEL HORIZ' },\n    { bit: 2, label: 'VEL VERT' },\n    { bit: 3, label: 'POS HORIZ REL' },\n    { bit: 4, label: 'POS HORIZ ABS' },\n    { bit: 5, label: 'POS VERT ABS' },\n    { bit: 6, label: 'POS VERT AGL' },\n    { bit: 7, label: 'CONST POS' },\n    { bit: 8, label: 'PRED POS REL' },\n    { bit: 9, label: 'PRED POS ABS' },\n    { bit: 10, label: 'GPS GLITCH' },\n    { bit: 11, label: 'ACCEL ERROR' }\n];\n\nconst statuses = bits.map(b => {\n    const set = (flags & (1 << b.bit)) !== 0;\n    return `${set ? '\u2714' : '\u26a0'} ${b.label}`;\n}).join(' | ');\n\nconst statusMsg = { payload: statuses, topic: 'ekf/status' };\nconst chartMsgs = [\n    velocityVar != null ? { payload: velocityVar, topic: 'Velocity' } : null,\n    posHorizVar != null ? { payload: posHorizVar, topic: 'Pos Horiz' } : null,\n    posVertVar != null ? { payload: posVertVar, topic: 'Pos Vert' } : null,\n    compassVar != null ? { payload: compassVar, topic: 'Compass' } : null,\n    terrainVar != null ? { payload: terrainVar, topic: 'Terrain Alt' } : null\n].filter(Boolean);\n\nreturn [[statusMsg], chartMsgs];",
         "outputs": 2,
@@ -305,19 +305,19 @@
         "y": 1020,
         "wires": [
             [
-                "6ff4c7ba86024bec"
+                "ekf_status"
             ],
             [
-                "1e668f9bb92542dd"
+                "ekf_variances"
             ]
         ]
     },
     {
-        "id": "92ea97dfc1664d04",
+        "id": "battery",
         "type": "ui_gauge",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Battery %",
-        "group": "0d8301aad12d4a87",
+        "group": "battery_group",
         "order": 1,
         "width": 4,
         "height": 4,
@@ -340,10 +340,10 @@
         "wires": []
     },
     {
-        "id": "3da75415f0e24248",
+        "id": "voltage",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "0d8301aad12d4a87",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "battery_group",
         "order": 2,
         "width": 4,
         "height": 1,
@@ -357,10 +357,10 @@
         "wires": []
     },
     {
-        "id": "d5308ac405174d78",
+        "id": "current",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "0d8301aad12d4a87",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "battery_group",
         "order": 3,
         "width": 4,
         "height": 1,
@@ -374,10 +374,10 @@
         "wires": []
     },
     {
-        "id": "a31c8254fee8479e",
+        "id": "consumed",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "0d8301aad12d4a87",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "battery_group",
         "order": 4,
         "width": 4,
         "height": 1,
@@ -391,10 +391,10 @@
         "wires": []
     },
     {
-        "id": "92041e258d904169",
+        "id": "temperature",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "0d8301aad12d4a87",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "battery_group",
         "order": 5,
         "width": 4,
         "height": 1,
@@ -408,11 +408,11 @@
         "wires": []
     },
     {
-        "id": "e5ba1bd8974e4696",
+        "id": "battery_trend",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Battery Trend",
-        "group": "0d8301aad12d4a87",
+        "group": "battery_group",
         "order": 6,
         "width": 12,
         "height": 4,
@@ -443,9 +443,9 @@
         "wires": []
     },
     {
-        "id": "57dd0a2bac84466f",
+        "id": "battery_alerts",
         "type": "ui_toast",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "position": "top right",
         "displayTime": "5",
         "highlight": "red",
@@ -454,7 +454,7 @@
         "cancel": "Cancel",
         "topic": "",
         "name": "Battery Alerts",
-        "group": "0d8301aad12d4a87",
+        "group": "battery_group",
         "order": 7,
         "width": 0,
         "height": 0,
@@ -463,11 +463,11 @@
         "wires": []
     },
     {
-        "id": "cd1f7da4982847ee",
+        "id": "altitude",
         "type": "ui_gauge",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Altitude",
-        "group": "6e774745f7fd4fa6",
+        "group": "flight_data",
         "order": 1,
         "width": 4,
         "height": 4,
@@ -490,10 +490,10 @@
         "wires": []
     },
     {
-        "id": "9c9940e6eecb428b",
+        "id": "groundspeed",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "6e774745f7fd4fa6",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "flight_data",
         "order": 2,
         "width": 4,
         "height": 1,
@@ -507,10 +507,10 @@
         "wires": []
     },
     {
-        "id": "c0b809409a9645ad",
+        "id": "airspeed",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "6e774745f7fd4fa6",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "flight_data",
         "order": 3,
         "width": 4,
         "height": 1,
@@ -524,10 +524,10 @@
         "wires": []
     },
     {
-        "id": "c010229d7aa64a0c",
+        "id": "climb",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "6e774745f7fd4fa6",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "flight_data",
         "order": 4,
         "width": 4,
         "height": 1,
@@ -541,10 +541,10 @@
         "wires": []
     },
     {
-        "id": "807431de10134966",
+        "id": "heading",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "6e774745f7fd4fa6",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "flight_data",
         "order": 5,
         "width": 4,
         "height": 1,
@@ -558,11 +558,11 @@
         "wires": []
     },
     {
-        "id": "54f1030757bc4ac1",
+        "id": "speed_trend",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Speed Trend",
-        "group": "6e774745f7fd4fa6",
+        "group": "flight_data",
         "order": 6,
         "width": 12,
         "height": 4,
@@ -592,11 +592,11 @@
         "wires": []
     },
     {
-        "id": "a63e421d2a364e1d",
+        "id": "altitude_trend",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Altitude Trend",
-        "group": "6e774745f7fd4fa6",
+        "group": "flight_data",
         "order": 7,
         "width": 12,
         "height": 4,
@@ -625,10 +625,10 @@
         "wires": []
     },
     {
-        "id": "225e3cf2ddad44e4",
+        "id": "latitude",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "760aee548fa74306",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "position",
         "order": 1,
         "width": 4,
         "height": 1,
@@ -642,10 +642,10 @@
         "wires": []
     },
     {
-        "id": "eeac4dac500d494c",
+        "id": "longitude",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "760aee548fa74306",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "position",
         "order": 2,
         "width": 4,
         "height": 1,
@@ -659,10 +659,10 @@
         "wires": []
     },
     {
-        "id": "f155bb9e9d6046ea",
+        "id": "altitude_amsl",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "760aee548fa74306",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "position",
         "order": 3,
         "width": 4,
         "height": 1,
@@ -676,10 +676,10 @@
         "wires": []
     },
     {
-        "id": "ecf105fb284140c9",
+        "id": "altitude_agl",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "760aee548fa74306",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "position",
         "order": 4,
         "width": 4,
         "height": 1,
@@ -693,10 +693,10 @@
         "wires": []
     },
     {
-        "id": "77359bad63f64e53",
+        "id": "track",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "760aee548fa74306",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "position",
         "order": 5,
         "width": 4,
         "height": 1,
@@ -710,11 +710,11 @@
         "wires": []
     },
     {
-        "id": "c4477831dd7044cd",
+        "id": "position_trend",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Position Trend",
-        "group": "760aee548fa74306",
+        "group": "position",
         "order": 6,
         "width": 12,
         "height": 4,
@@ -745,10 +745,10 @@
         "wires": []
     },
     {
-        "id": "5a3c8b9196a24e4a",
+        "id": "esc_summary",
         "type": "ui_template",
-        "z": "1cd89aae52724e74",
-        "group": "776ab54996b14b50",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "esc_telemetry",
         "name": "ESC Summary",
         "order": 1,
         "width": 12,
@@ -764,11 +764,11 @@
         "wires": []
     },
     {
-        "id": "9a1bdea86923427d",
+        "id": "esc_rpm",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "ESC RPM",
-        "group": "776ab54996b14b50",
+        "group": "esc_telemetry",
         "order": 2,
         "width": 12,
         "height": 4,
@@ -800,11 +800,11 @@
         "wires": []
     },
     {
-        "id": "0cd933d098fc4b8d",
+        "id": "esc_current",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "ESC Current",
-        "group": "776ab54996b14b50",
+        "group": "esc_telemetry",
         "order": 3,
         "width": 12,
         "height": 4,
@@ -836,11 +836,11 @@
         "wires": []
     },
     {
-        "id": "0f832c09727e444b",
+        "id": "esc_temp",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "ESC Temp",
-        "group": "776ab54996b14b50",
+        "group": "esc_telemetry",
         "order": 4,
         "width": 12,
         "height": 4,
@@ -872,11 +872,11 @@
         "wires": []
     },
     {
-        "id": "fd78f9fa5c73419e",
+        "id": "esc_voltage",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "ESC Voltage",
-        "group": "776ab54996b14b50",
+        "group": "esc_telemetry",
         "order": 5,
         "width": 12,
         "height": 4,
@@ -908,11 +908,11 @@
         "wires": []
     },
     {
-        "id": "6e8fb489902e4c1d",
+        "id": "vibration",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "Vibration",
-        "group": "110a3ccb22044630",
+        "group": "vibration_group",
         "order": 1,
         "width": 12,
         "height": 4,
@@ -943,10 +943,10 @@
         "wires": []
     },
     {
-        "id": "cbc6db7c0ce94ace",
+        "id": "clipping",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "110a3ccb22044630",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "vibration_group",
         "order": 2,
         "width": 12,
         "height": 1,
@@ -960,10 +960,10 @@
         "wires": []
     },
     {
-        "id": "3dd412f0ace94010",
+        "id": "terrain_height",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "cc458bc7a1694df2",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "terrain",
         "order": 1,
         "width": 4,
         "height": 1,
@@ -977,10 +977,10 @@
         "wires": []
     },
     {
-        "id": "02b7320ac4d7487b",
+        "id": "clearance",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "cc458bc7a1694df2",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "terrain",
         "order": 2,
         "width": 4,
         "height": 1,
@@ -994,10 +994,10 @@
         "wires": []
     },
     {
-        "id": "ff913410f5fe44e9",
+        "id": "terrain_status",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "cc458bc7a1694df2",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "terrain",
         "order": 3,
         "width": 12,
         "height": 1,
@@ -1011,10 +1011,10 @@
         "wires": []
     },
     {
-        "id": "6ff4c7ba86024bec",
+        "id": "ekf_status",
         "type": "ui_text",
-        "z": "1cd89aae52724e74",
-        "group": "f44f94b550784331",
+        "z": "mavlink_telemetry_dashboard",
+        "group": "ekf_health",
         "order": 1,
         "width": 12,
         "height": 1,
@@ -1028,11 +1028,11 @@
         "wires": []
     },
     {
-        "id": "1e668f9bb92542dd",
+        "id": "ekf_variances",
         "type": "ui_chart",
-        "z": "1cd89aae52724e74",
+        "z": "mavlink_telemetry_dashboard",
         "name": "EKF Variances",
-        "group": "f44f94b550784331",
+        "group": "ekf_health",
         "order": 2,
         "width": 12,
         "height": 4,
@@ -1065,10 +1065,10 @@
         "wires": []
     },
     {
-        "id": "0d8301aad12d4a87",
+        "id": "battery_group",
         "type": "ui_group",
         "name": "Battery",
-        "tab": "b948f38578d0479b",
+        "tab": "telemetry_dashboard",
         "order": 1,
         "disp": true,
         "width": "12",
@@ -1076,10 +1076,10 @@
         "className": ""
     },
     {
-        "id": "6e774745f7fd4fa6",
+        "id": "flight_data",
         "type": "ui_group",
         "name": "Flight Data",
-        "tab": "b948f38578d0479b",
+        "tab": "telemetry_dashboard",
         "order": 2,
         "disp": true,
         "width": "12",
@@ -1087,10 +1087,10 @@
         "className": ""
     },
     {
-        "id": "760aee548fa74306",
+        "id": "position",
         "type": "ui_group",
         "name": "Position",
-        "tab": "b948f38578d0479b",
+        "tab": "telemetry_dashboard",
         "order": 3,
         "disp": true,
         "width": "12",
@@ -1098,10 +1098,10 @@
         "className": ""
     },
     {
-        "id": "776ab54996b14b50",
+        "id": "esc_telemetry",
         "type": "ui_group",
         "name": "ESC Telemetry",
-        "tab": "b948f38578d0479b",
+        "tab": "telemetry_dashboard",
         "order": 4,
         "disp": true,
         "width": "12",
@@ -1109,10 +1109,10 @@
         "className": ""
     },
     {
-        "id": "110a3ccb22044630",
+        "id": "vibration_group",
         "type": "ui_group",
         "name": "Vibration",
-        "tab": "b948f38578d0479b",
+        "tab": "telemetry_dashboard",
         "order": 5,
         "disp": true,
         "width": "12",
@@ -1120,10 +1120,10 @@
         "className": ""
     },
     {
-        "id": "cc458bc7a1694df2",
+        "id": "terrain",
         "type": "ui_group",
         "name": "Terrain",
-        "tab": "b948f38578d0479b",
+        "tab": "telemetry_dashboard",
         "order": 6,
         "disp": true,
         "width": "12",
@@ -1131,10 +1131,10 @@
         "className": ""
     },
     {
-        "id": "f44f94b550784331",
+        "id": "ekf_health",
         "type": "ui_group",
         "name": "EKF Health",
-        "tab": "b948f38578d0479b",
+        "tab": "telemetry_dashboard",
         "order": 7,
         "disp": true,
         "width": "12",
@@ -1142,7 +1142,7 @@
         "className": ""
     },
     {
-        "id": "b948f38578d0479b",
+        "id": "telemetry_dashboard",
         "type": "ui_tab",
         "name": "Telemetry Dashboard",
         "icon": "dashboard",
