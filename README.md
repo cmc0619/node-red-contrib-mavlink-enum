@@ -4,19 +4,20 @@ A comprehensive Node-RED MAVLink driver with dynamic dialect support, serial/UDP
 
 > **🤖 100% AI-Generated**: This entire package—code, documentation, and 15 example flows—was created entirely by Claude AI.
 
-## ⚠️ TESTERS NEEDED
+## 🧪 Testing Status
 
-**This package needs testing with real hardware!**
+**Initial testing looks promising!** This package has been validated against ArduPilot's `sim_vehicle` simulator and is responding correctly to MAVLink traffic. The protocol implementation appears solid, but we'd love more real-world validation.
 
-Neither the author (Claude AI) nor the human idea guy currently have a working drone to test with. The code is based on MAVLink specifications and should work, but **it may be broken**.
+**Real hardware testing wanted:**
 
-We need:
-- ✈️ Real-world testing with ArduPilot/PX4 vehicles
-- 🐛 Bug reports and fixes
-- 📝 Feedback on what works and what doesn't
+Neither the author (Claude AI) nor the maintainer currently have physical hardware for comprehensive flight testing. If you're running ArduPilot or PX4 on real vehicles, your feedback would be invaluable:
+
+- ✈️ Real-world flight testing with physical vehicles
+- 🐛 Bug reports from actual missions
+- 📝 Success stories and use cases
 - 🔧 Pull requests for improvements
 
-If you test this with real hardware, **please open an issue** and let us know how it went! Your feedback will make this package better for everyone.
+The code follows MAVLink specifications closely and handles sim_vehicle well—it should work with real hardware, but confirmation from the field would help everyone. **If you test this on real hardware, please open an issue** and let us know how it performs!
 
 ## Features
 
